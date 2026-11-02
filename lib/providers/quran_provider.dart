@@ -1,20 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:qcf_quran_plus/qcf_quran_plus.dart';
-import 'package:qcf_quran_plus/src/services/get_page.dart'; // ignore: implementation_imports
 
 /// Mengelola seluruh state pembaca Al-Qur'an.
 class QuranProvider extends ChangeNotifier {
-  QuranProvider() {
-    _getPage.getQuran(totalPagesCount);
-  }
-
-  final GetPage _getPage = GetPage();
   final PageController pageController = PageController(initialPage: 0);
 
   int currentPage = 1;
   bool isTajweed = true;
   bool dualPage = false;
-  bool isDarkMode = false;
+  ThemeMode themeMode = ThemeMode.system;
   List<HighlightVerse> highlights = <HighlightVerse>[];
 
   int get totalPages => totalPagesCount;
@@ -23,11 +17,7 @@ class QuranProvider extends ChangeNotifier {
     if (pageNumber < 1 || pageNumber > totalPages) {
       return;
     }
-    pageController.animateToPage(
-      pageNumber - 1,
-      duration: const Duration(milliseconds: 350),
-      curve: Curves.easeInOut,
-    );
+    pageController.jumpToPage(pageNumber - 1);
   }
 
   void nextPage() {
@@ -44,40 +34,41 @@ class QuranProvider extends ChangeNotifier {
   }
 
   void goToSurah(int surahNumber) {
-    final List<Surah> surahs = _getPage.surahs;
-    Surah? target;
-    for (final Surah surah in surahs) {
-      if (surah.index == surahNumber) {
-        target = surah;
-        break;
-      }
-    }
-    if (target == null) {
+    final int? pageNumber = pageForSurah(surahNumber);
+    if (pageNumber == null) {
       return;
     }
-    goToPage(target.startPage);
+    goToPage(pageNumber);
   }
 
   void goToJuz(int juzNumber) {
-    // Cari ayat pertama pada juz terkait.
+    final int? pageNumber = pageForJuz(juzNumber);
+    if (pageNumber != null) {
+      goToPage(pageNumber);
+    }
+  }
+
+  int? pageForSurah(int surahNumber) {
+    if (surahNumber < 1 || surahNumber > totalSurahCount) {
+      return null;
+    }
+    return getPageNumber(surahNumber, 1);
+  }
+
+  int? pageForJuz(int juzNumber) {
     for (final Map<String, dynamic> juzEntry in juz) {
-      if (int.parse(juzEntry['id'].toString()) == juzNumber) {
+      if (juzEntry['id'] == juzNumber) {
         final Map<dynamic, dynamic> verses = juzEntry['verses'];
-        int? firstSurah;
-        int? firstAyah;
-        for (final MapEntry entry in verses.entries) {
-          final int surah = int.parse(entry.key);
-          final List<int> range = List<int>.from(entry.value);
-          if (firstAyah == null || range[0] < firstAyah) {
-            firstSurah = surah;
-            firstAyah = range[0];
-          }
+        if (verses.isEmpty) {
+          return null;
         }
-        if (firstAyah != null && firstSurah != null) {
-          goToPage(getPageNumber(firstSurah, firstAyah));
-        }
+        final MapEntry<dynamic, dynamic> firstVerse = verses.entries.first;
+        final int surahNumber = int.parse(firstVerse.key.toString());
+        final List<int> range = List<int>.from(firstVerse.value);
+        return getPageNumber(surahNumber, range.first);
       }
     }
+    return null;
   }
 
   void toggleTajweed() {
@@ -91,7 +82,7 @@ class QuranProvider extends ChangeNotifier {
   }
 
   void setDarkMode(bool value) {
-    isDarkMode = value;
+    themeMode = value ? ThemeMode.dark : ThemeMode.light;
     notifyListeners();
   }
 

@@ -39,9 +39,10 @@ Aplikasi **Alquran** adalah *Offline Mushaf Reader* digital 15 baris per halaman
 ### 3.2. Penanganan Asset Offline & Download Manager
 * **Offline First Approach:** Seluruh teks Uthmanic & struktur metadata tersimpan secara lokal.
 * **Font/Tajwid Asset Manager:**
-  * Saat pertama kali aplikasi dibuka atau saat fitur Tajwid/Font QCF diaktifkan, aplikasi mengecek keberadaan aset font lokal.
-  * Jika aset font/tajwid belum tersedia di perangkat, aplikasi akan menampilkan dialog tawaran unduhan (*download prompt*) dengan *progress bar*.
-  * Setelah berhasil diunduh, aset disimpan di ruang penyimpanan lokal (*Local Application Storage*) untuk digunakan secara offline seterusnya.
+  * Aplikasi memeriksa font QCF setiap halaman pada penyimpanan lokal saat pembaca dibuka.
+  * Indikator lingkaran di AppBar menunjukkan persentase halaman yang siap offline: hijau untuk halaman yang sudah tersimpan dan merah untuk halaman yang belum tersedia.
+  * Pengguna dapat mengetuk indikator untuk menyiapkan seluruh font halaman yang belum tersedia secara bertahap tanpa mengunci pembaca. Proses dapat dilanjutkan setelah gagal.
+  * Font QCF disimpan di ruang penyimpanan lokal (*Local Application Storage*) agar seluruh halaman dapat dibaca offline.
 
 ### 3.3. Log Bacaan Harian & Analitik Khatam
 

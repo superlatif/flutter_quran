@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:qcf_quran_plus/qcf_quran_plus.dart';
 
 import '../services/bookmark_service.dart';
+import '../models/bookmark_item.dart';
 import '../models/bookmark_node.dart';
 
 /// Layar manajemen bookmark pohon hierarki (hingga 3 kedalaman).
@@ -14,7 +16,8 @@ class BookmarkTreeScreen extends StatefulWidget {
 class _BookmarkTreeScreenState extends State<BookmarkTreeScreen> {
   final TextEditingController _nameController = TextEditingController();
   final Map<int, List<BookmarkNode>> _childrenMap = <int, List<BookmarkNode>>{};
-  int? _expandedNodeId;
+  final Map<int, List<BookmarkItem>> _itemsMap = <int, List<BookmarkItem>>{};
+  final Set<int> _expandedNodeIds = <int>{};
   bool _isLoading = true;
   List<BookmarkNode> _nodes = <BookmarkNode>[];
 
@@ -39,6 +42,12 @@ class _BookmarkTreeScreenState extends State<BookmarkTreeScreen> {
         node.id,
       );
     }
+    final List<BookmarkItem> items = await BookmarkService.instance
+        .getAllItems();
+    final Map<int, List<BookmarkItem>> itemsMap = <int, List<BookmarkItem>>{};
+    for (final BookmarkItem item in items) {
+      itemsMap.putIfAbsent(item.nodeId, () => <BookmarkItem>[]).add(item);
+    }
     if (!mounted) {
       return;
     }
@@ -47,6 +56,9 @@ class _BookmarkTreeScreenState extends State<BookmarkTreeScreen> {
       _childrenMap
         ..clear()
         ..addAll(childrenMap);
+      _itemsMap
+        ..clear()
+        ..addAll(itemsMap);
       _isLoading = false;
     });
   }
@@ -78,9 +90,10 @@ class _BookmarkTreeScreenState extends State<BookmarkTreeScreen> {
   }
 
   Widget _buildNodeTile(BuildContext context, BookmarkNode node, int depth) {
-    final bool isExpanded = _expandedNodeId == node.id;
+    final bool isExpanded = _expandedNodeIds.contains(node.id);
     final List<BookmarkNode> children =
         _childrenMap[node.id] ?? <BookmarkNode>[];
+    final List<BookmarkItem> items = _itemsMap[node.id] ?? <BookmarkItem>[];
 
     return Column(
       children: <Widget>[
@@ -92,17 +105,31 @@ class _BookmarkTreeScreenState extends State<BookmarkTreeScreen> {
             color: Theme.of(context).colorScheme.primary,
           ),
           title: Text(node.name),
-          subtitle: Text('Kedalaman ${node.depth}'),
+          subtitle: Text('Kedalaman ${node.depth} • ${items.length} ayat'),
           trailing: Icon(isExpanded ? Icons.expand_more : Icons.chevron_right),
           onTap: () {
             setState(() {
-              _expandedNodeId = isExpanded ? null : node.id;
+              if (isExpanded) {
+                _expandedNodeIds.remove(node.id);
+              } else {
+                _expandedNodeIds.add(node.id);
+              }
             });
           },
         ),
         if (isExpanded) ...<Widget>[
           ...children.map<Widget>(
             (BookmarkNode child) => _buildNodeTile(context, child, child.depth),
+          ),
+          ...items.map<Widget>(
+            (BookmarkItem item) => ListTile(
+              contentPadding: const EdgeInsets.only(left: 56, right: 16),
+              leading: const Icon(Icons.menu_book_outlined),
+              title: Text(
+                '${getSurahNameEnglish(item.surahId)} • Ayat ${item.ayahId}',
+              ),
+              subtitle: Text('Halaman ${item.pageNumber}'),
+            ),
           ),
         ],
       ],

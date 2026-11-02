@@ -44,5 +44,11 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# Release signing (jangan pernah commit keystore & password)
+android/key.properties
+android/key/.storepass-local.txt
+android/app/*.jks
+android/app/*.keystore
+
 # Widget Preview related
 .widget_preview/

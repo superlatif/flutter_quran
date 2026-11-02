@@ -9,14 +9,14 @@ berbasis Flutter, mengikuti spesifikasi pada `product_requirement_document.md`.
 |---|---|
 | Mushaf offline 15 baris/halaman (font QCF Hafs `qcf_quran_plus`) | ✅ |
 | Pewarnaan Tajwid (toggle on/off) | ✅ |
-| Navigasi Juz (1–30), Surah (1–114), Halaman (1–604) | ✅ |
+| Cari Juz (1–30), Surah (1–114), Halaman (1–604), dan kalimat Al-Qur'an | ✅ |
 | Portrait: 1 halaman fit-to-screen; Landscape: swipe halaman | ✅ |
 | Mode 2 halaman (spread) di layar lebar (≥750px) | ✅ |
 | Log bacaan harian otomatis & manual (dengan validasi ketat) | ✅ |
 | Analitik Khatam (total siklus + tanggal khatam) | ✅ |
 | Bookmark pohon hierarkis hingga 3 kedalaman | ✅ |
 | Notifikasi pengingat per jam jika belum membaca | ✅ |
-| Download font on-demand (5 halaman pertama dimuat saat startup) | ✅ |
+| Indikator progres 604 halaman offline; ketuk untuk menyiapkan seluruh font di latar belakang | ✅ |
 | Animasi page curl | ℹ️ memakai swipe halaman standar (lihat catatan di bawah) |
 
 > **Catatan page curl:** paket `qcf_quran_plus 0.1.1` tidak menyediakan hook animasi
@@ -27,7 +27,7 @@ berbasis Flutter, mengikuti spesifikasi pada `product_requirement_document.md`.
 
 - Flutter SDK 3.x (dikembangkan di 3.47.9 / Dart 3.13.7)
 - Android SDK untuk build APK
-- Koneksi internet saat `flutter pub get` dan saat aplikasi **pertama kali** menyiapkan font
+- Koneksi internet saat `flutter pub get`; aset font Mushaf ikut dikemas dan dapat disiapkan tanpa internet
 
 ## Menjalankan Aplikasi
 
@@ -44,14 +44,20 @@ flutter run -d <device-id>
 > **Linux/Windows/macOS:** database menggunakan `sqflite_common_ffi`
 > (diinisialisasi otomatis di `lib/main.dart`), jadi bookmark & log khatam berfungsi penuh.
 
-## perilaku Startup
+## Perilaku Startup
 
-1. Splash memuat font **5 halaman pertama** agar aplikasi cepat terbuka.
-2. Jika font belum tersedia → dialog "Unduh Sekarang / Nanti".
-3. Jika dibatalkan → layar error dengan tombol unduh ulang; aplikasi tidak masuk
-   pembaca sampai font siap.
-4. Setelah siap → `QuranRepository.instance.ensureLoaded(604)` memuat data halaman,
-   lalu masuk ke layar pembaca.
+1. Pembaca langsung terbuka. Data Mushaf bawaan aplikasi diproses kembali di
+   memori setiap kali aplikasi dimulai; ini pemuatan lokal, bukan unduhan internet.
+2. Sambil data lokal disiapkan, indikator offline tetap terlihat di AppBar.
+   Halaman pertama dan data Mushaf disiapkan bersamaan.
+3. Indikator lingkaran kecil menunjukkan persentase halaman yang font-nya
+   sudah tersimpan di perangkat: hijau berarti siap offline, merah berarti
+   belum tersimpan. Persentase diperiksa kembali setiap aplikasi dibuka.
+4. Ketuk indikator untuk menyiapkan semua halaman yang belum tersedia. Proses
+   berjalan bertahap tanpa mengunci pembaca, terus berjalan saat berpindah ke
+   layar lain, dan dapat dilanjutkan setelah aplikasi dibuka kembali.
+5. Membuka halaman baru menyiapkan font halaman itu secara otomatis. Pencarian
+   kalimat dijalankan di isolate agar tidak menghambat tampilan.
 
 ## Build APK
 
@@ -102,7 +108,6 @@ lib/
 ├── providers/
 │   └── quran_provider.dart       # state pembaca: halaman, tajwid, highlight
 ├── screens/
-│   ├── splash_screen.dart        # muat font 5 halaman awal + dialog unduh
 │   ├── quran_reader_screen.dart  # pembaca mushaf utama + long-press menu
 │   ├── log_khatam_screen.dart    # log harian manual + analitik khatam
 │   └── bookmark_tree_screen.dart # pohon bookmark 3 kedalaman

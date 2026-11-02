@@ -45,13 +45,13 @@ class BookmarkService {
     return DatabaseService.instance.getAllItems();
   }
 
-  Future<void> createItem({
+  Future<bool> createItem({
     required int nodeId,
     required int surahId,
     required int ayahId,
     required int pageNumber,
   }) async {
-    await DatabaseService.instance.createItem(
+    return DatabaseService.instance.createItem(
       nodeId: nodeId,
       surahId: surahId,
       ayahId: ayahId,

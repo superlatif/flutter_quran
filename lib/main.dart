@@ -5,7 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:quran2/providers/quran_provider.dart';
-import 'package:quran2/screens/splash_screen.dart';
+import 'package:quran2/screens/quran_reader_screen.dart';
 
 void main() {
   // Sqflite hanya mendukung Android/iOS secara native.
@@ -26,23 +26,28 @@ class AlquranApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider<QuranProvider>(create: (_) => QuranProvider()),
       ],
-      child: MaterialApp(
-        title: 'Alquran',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Color(0xFF0F766E)),
-          useMaterial3: true,
-          brightness: Brightness.light,
-        ),
-        darkTheme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: Color(0xFF0F766E),
-            brightness: Brightness.dark,
-          ),
-          useMaterial3: true,
-          brightness: Brightness.dark,
-        ),
-        home: const SplashScreen(),
+      child: Consumer<QuranProvider>(
+        builder: (BuildContext context, QuranProvider provider, Widget? child) {
+          return MaterialApp(
+            title: 'Alquran',
+            debugShowCheckedModeBanner: false,
+            themeMode: provider.themeMode,
+            theme: ThemeData(
+              colorScheme: ColorScheme.fromSeed(seedColor: Color(0xFF0F766E)),
+              useMaterial3: true,
+              brightness: Brightness.light,
+            ),
+            darkTheme: ThemeData(
+              colorScheme: ColorScheme.fromSeed(
+                seedColor: Color(0xFF0F766E),
+                brightness: Brightness.dark,
+              ),
+              useMaterial3: true,
+              brightness: Brightness.dark,
+            ),
+            home: const QuranReaderScreen(),
+          );
+        },
       ),
     );
   }
