@@ -1,0 +1,257 @@
+import 'package:sqflite/sqflite.dart';
+import 'package:path/path.dart';
+
+import '../models/bookmark_item.dart';
+import '../models/bookmark_node.dart';
+import '../models/daily_log.dart';
+
+/// Service singleton untuk koneksi database lokal (SQLite) aplikasi Alquran.
+///
+/// Tabel:
+/// - `daily_logs`      : log bacaan harian
+/// - `bookmark_nodes`  : pohon hierarki bookmark (kategori -> sub-kategori -> ayat)
+/// - `bookmark_items`  : ayat-ayat yang tersimpan dalam bookmark
+class DatabaseService {
+  DatabaseService._();
+
+  static final DatabaseService instance = DatabaseService._();
+
+  Database? _database;
+
+  Future<Database> get database async {
+    final Database? existing = _database;
+    if (existing != null) {
+      return existing;
+    }
+
+    final String databasesPath = await getDatabasesPath();
+    final Database db = await openDatabase(
+      join(databasesPath, 'alquran.db'),
+      version: 1,
+      onCreate: _onCreate,
+    );
+
+    _database = db;
+    return db;
+  }
+
+  Future<void> _onCreate(Database db, int version) async {
+    await db.execute('''
+      CREATE TABLE daily_logs (
+        date TEXT PRIMARY KEY,
+        surah_id INTEGER NOT NULL,
+        ayah_id INTEGER NOT NULL,
+        updated_at TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE bookmark_nodes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        parent_id INTEGER,
+        name TEXT NOT NULL,
+        depth INTEGER NOT NULL CHECK (depth IN (1, 2, 3))
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE bookmark_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        node_id INTEGER NOT NULL,
+        surah_id INTEGER NOT NULL,
+        ayah_id INTEGER NOT NULL,
+        page_number INTEGER NOT NULL,
+        created_at TEXT,
+        FOREIGN KEY (node_id) REFERENCES bookmark_nodes(id) ON DELETE CASCADE
+      )
+    ''');
+  }
+
+  // ============================================================
+  // Daily Logs
+  // ============================================================
+
+  Future<DailyLog?> getDailyLog(String date) async {
+    final Database db = await database;
+    final List<Map<String, dynamic>> rows = await db.query(
+      'daily_logs',
+      where: 'date = ?',
+      whereArgs: [date],
+      limit: 1,
+    );
+
+    if (rows.isEmpty) {
+      return null;
+    }
+
+    return DailyLog.fromMap(rows.first);
+  }
+
+  Future<DailyLog?> getTodaysLog() {
+    return getDailyLog(_today());
+  }
+
+  String _today() {
+    final DateTime now = DateTime.now();
+    return _formatDate(now);
+  }
+
+  static String _formatDate(DateTime date) {
+    String twoDigits(int value) => value.toString().padLeft(2, '0');
+    return '${date.year.toString().padLeft(4, '0')}-'
+        '${twoDigits(date.month)}-${twoDigits(date.day)}';
+  }
+
+  Future<void> upsertDailyLog({
+    required String date,
+    required int surahId,
+    required int ayahId,
+  }) async {
+    final Database db = await database;
+    await db.insert('daily_logs', <String, dynamic>{
+      'date': date,
+      'surah_id': surahId,
+      'ayah_id': ayahId,
+      'updated_at': DateTime.now().toIso8601String(),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<DailyLog>> getDailyLogs() async {
+    final Database db = await database;
+    final List<Map<String, dynamic>> rows = await db.query(
+      'daily_logs',
+      orderBy: 'date DESC',
+    );
+
+    return rows
+        .map((Map<String, dynamic> row) => DailyLog.fromMap(row))
+        .toList();
+  }
+
+  // ============================================================
+  // Bookmark Nodes (Tree)
+  // ============================================================
+
+  Future<List<BookmarkNode>> getNodes() async {
+    final Database db = await database;
+    final List<Map<String, dynamic>> rows = await db.query(
+      'bookmark_nodes',
+      orderBy: 'id ASC',
+    );
+
+    return rows
+        .map((Map<String, dynamic> row) => BookmarkNode.fromMap(row))
+        .toList();
+  }
+
+  Future<List<BookmarkNode>> getChildren(int? parentId) async {
+    final Database db = await database;
+
+    if (parentId == null) {
+      return getNodes();
+    }
+
+    final List<Map<String, dynamic>> rows = await db.query(
+      'bookmark_nodes',
+      where: 'parent_id IS ?',
+      whereArgs: [parentId],
+      orderBy: 'id ASC',
+    );
+
+    return rows
+        .map((Map<String, dynamic> row) => BookmarkNode.fromMap(row))
+        .toList();
+  }
+
+  Future<BookmarkNode> createNode({
+    int? parentId,
+    required String name,
+    required int depth,
+  }) async {
+    final Database db = await database;
+    final int id = await db.insert('bookmark_nodes', <String, dynamic>{
+      'parent_id': parentId,
+      'name': name,
+      'depth': depth,
+    });
+
+    return BookmarkNode(id: id, parentId: parentId, name: name, depth: depth);
+  }
+
+  Future<void> updateNode(int id, String name) async {
+    final Database db = await database;
+    await db.update(
+      'bookmark_nodes',
+      <String, dynamic>{'name': name},
+      where: 'id = ?',
+      whereArgs: <int>[id],
+    );
+  }
+
+  Future<void> deleteNode(int id) async {
+    final Database db = await database;
+    await db.delete(
+      'bookmark_nodes',
+      where: 'id = ?',
+      whereArgs: <int>[id],
+      // Children first, then the node itself (tree structure).
+    );
+
+    await db.execute('DELETE FROM bookmark_items WHERE node_id = ?', <int>[id]);
+
+    await db.execute('DELETE FROM bookmark_nodes WHERE parent_id = ?', <int>[
+      id,
+    ]);
+  }
+
+  // ============================================================
+  // Bookmark Items (Ayat)
+  // ============================================================
+
+  Future<List<BookmarkItem>> getItemsByNode(int nodeId) async {
+    final Database db = await database;
+    final List<Map<String, dynamic>> rows = await db.query(
+      'bookmark_items',
+      where: 'node_id = ?',
+      whereArgs: <int>[nodeId],
+      orderBy: 'id ASC',
+    );
+
+    return rows
+        .map((Map<String, dynamic> row) => BookmarkItem.fromMap(row))
+        .toList();
+  }
+
+  Future<List<BookmarkItem>> getAllItems() async {
+    final Database db = await database;
+    final List<Map<String, dynamic>> rows = await db.query(
+      'bookmark_items',
+      orderBy: 'id ASC',
+    );
+
+    return rows
+        .map((Map<String, dynamic> row) => BookmarkItem.fromMap(row))
+        .toList();
+  }
+
+  Future<void> createItem({
+    required int nodeId,
+    required int surahId,
+    required int ayahId,
+    required int pageNumber,
+  }) async {
+    final Database db = await database;
+    await db.insert('bookmark_items', <String, dynamic>{
+      'node_id': nodeId,
+      'surah_id': surahId,
+      'ayah_id': ayahId,
+      'page_number': pageNumber,
+      'created_at': DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<void> deleteItem(int id) async {
+    final Database db = await database;
+    await db.delete('bookmark_items', where: 'id = ?', whereArgs: <int>[id]);
+  }
+}
