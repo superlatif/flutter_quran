@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import '../../providers/quran_provider.dart';
 import '../services/bookmark_service.dart';
 import '../services/daily_log_service.dart';
-import '../services/notification_service.dart';
 import 'bookmark_tree_screen.dart';
 import 'log_khatam_screen.dart';
 
@@ -234,7 +233,6 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
       surahId: surah,
       ayahId: ayah,
     );
-    await NotificationService.instance.cancelHourlyReminder();
 
     if (!mounted) {
       return;

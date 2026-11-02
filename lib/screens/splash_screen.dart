@@ -4,9 +4,6 @@ import 'package:qcf_quran_plus/qcf_quran_plus.dart';
 import 'package:qcf_quran_plus/src/widgets/quran_page/quran_repository.dart';
 
 import 'package:quran2/screens/quran_reader_screen.dart';
-import 'package:quran2/services/daily_log_service.dart';
-import 'package:quran2/services/notification_service.dart';
-import '../models/daily_log.dart';
 
 /// Splash screen: cek ketersediaan font lokal, unduh jika diperlukan,
 /// lalu masuk ke layar pembaca Mushaf.
@@ -104,27 +101,6 @@ class _SplashScreenState extends State<SplashScreen> {
     setState(() {
       _isLoading = false;
     });
-
-    // Cek status log bacaan hari ini untuk notifikasi pengingat per jam.
-    try {
-      await NotificationService.instance.initialize();
-      final DailyLog? todayLog = await DailyLogService.instance.getTodaysLog();
-      if (!mounted) {
-        return;
-      }
-
-      if (todayLog == null) {
-        await NotificationService.instance.scheduleHourlyReminder();
-      } else {
-        await NotificationService.instance.cancelHourlyReminder();
-      }
-    } catch (_) {
-      // Notifikasi lokal tidak wajib menghambat startup.
-    }
-
-    if (!mounted) {
-      return;
-    }
 
     // Muat data Quran (parser halaman) agar QuranRepository.isReady = true.
     // Tanpa ini, layar pembaca hanya menampilkan ruang kosong.
