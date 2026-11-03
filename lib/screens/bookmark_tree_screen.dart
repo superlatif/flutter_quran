@@ -126,7 +126,7 @@ class _BookmarkTreeScreenState extends State<BookmarkTreeScreen> {
               contentPadding: const EdgeInsets.only(left: 56, right: 16),
               leading: const Icon(Icons.menu_book_outlined),
               title: Text(
-                '${getSurahNameEnglish(item.surahId)} • Ayat ${item.ayahId}',
+                '${getSurahName(item.surahId)} • Ayat ${item.ayahId}',
               ),
               subtitle: Text('Halaman ${item.pageNumber}'),
             ),

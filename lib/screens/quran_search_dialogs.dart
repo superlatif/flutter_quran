@@ -21,12 +21,15 @@ class _SurahSearchDialogState extends State<SurahSearchDialog> {
   @override
   Widget build(BuildContext context) {
     final String query = _searchController.text.trim().toLowerCase();
+    final String normalizedQuery = _normalizeSurahQuery(query);
     final List<int> surahNumbers =
         List<int>.generate(totalSurahCount, (int i) => i + 1).where((
           int surah,
         ) {
-          return getSurahNameEnglish(surah).toLowerCase().contains(query) ||
-              getSurahNameArabic(surah).contains(query) ||
+          final String name = getSurahName(surah);
+          final String arabicName = getSurahNameArabic(surah);
+          return _normalizeSurahQuery(name).contains(normalizedQuery) ||
+              _normalizeSurahQuery(arabicName).contains(normalizedQuery) ||
               surah.toString() == query;
         }).toList();
 
@@ -55,7 +58,7 @@ class _SurahSearchDialogState extends State<SurahSearchDialog> {
                       itemBuilder: (BuildContext context, int index) {
                         final int surah = surahNumbers[index];
                         return ListTile(
-                          title: Text(getSurahNameEnglish(surah)),
+                          title: Text(getSurahName(surah)),
                           subtitle: Text(getSurahNameArabic(surah)),
                           trailing: Text('$surah'),
                           onTap: () => Navigator.pop(context, surah),
@@ -222,6 +225,12 @@ class _QuranTextSearchDialogState extends State<QuranTextSearchDialog> {
       ],
     );
   }
+}
+
+/// Menyamakan spasi, tanda hubung, dan apostrof agar pencarian nama surah
+/// tidak sensitif terhadap perbedaan penulisan.
+String _normalizeSurahQuery(String value) {
+  return value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\u0600-\u06FF]'), '');
 }
 
 List<Map<String, dynamic>> searchQuranPhrase(String query) {

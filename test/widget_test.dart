@@ -57,6 +57,25 @@ void main() {
     expect(tester.binding.transientCallbackCount, 0);
   });
 
+  testWidgets('Surah search uses the original name instead of translation', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(home: Scaffold(body: SurahSearchDialog())),
+    );
+
+    await tester.enterText(find.byType(TextField), 'Al Isra');
+    await tester.pump();
+
+    expect(find.text("Al Isra'"), findsOneWidget);
+    expect(find.text('The Night Journey'), findsNothing);
+
+    await tester.enterText(find.byType(TextField), 'Night Journey');
+    await tester.pump();
+
+    expect(find.text('Surah tidak ditemukan.'), findsOneWidget);
+  });
+
   test('Quran phrase search runs in an isolate', () async {
     final List<Map<String, dynamic>> matches = await compute(
       searchQuranPhrase,
@@ -79,7 +98,27 @@ void main() {
 
     expect(find.byType(MaterialApp), findsOneWidget);
     expect(find.byType(QuranReaderScreen), findsOneWidget);
-    expect(find.text('Alquran'), findsOneWidget);
+    expect(find.text('Alquran'), findsNothing);
     expect(find.byType(CircularProgressIndicator), findsAtLeastNWidgets(1));
+  });
+
+  testWidgets('Reader controls toggle when the page is tapped', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const AlquranApp());
+
+    final Finder tapArea = find.byKey(
+      const ValueKey<String>('quran-reader-tap-area'),
+    );
+    expect(tapArea, findsOneWidget);
+    expect(find.text('Alquran'), findsNothing);
+
+    await tester.tap(tapArea);
+    await tester.pump();
+    expect(find.text('Alquran'), findsOneWidget);
+
+    await tester.tap(tapArea);
+    await tester.pump();
+    expect(find.text('Alquran'), findsNothing);
   });
 }

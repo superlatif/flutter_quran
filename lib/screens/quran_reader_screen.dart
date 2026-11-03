@@ -10,13 +10,16 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../providers/quran_provider.dart';
 import '../models/ayah_comment.dart';
+import '../models/quran_page_info.dart';
 import '../services/ayah_comment_service.dart';
 import '../services/bookmark_service.dart';
 import '../services/daily_log_service.dart';
 import '../services/offline_data_service.dart';
+import '../widgets/translation_surah_view.dart';
 import 'bookmark_tree_screen.dart';
 import 'log_khatam_screen.dart';
 import 'quran_search_dialogs.dart';
+import 'reading_statistics_screen.dart';
 
 enum _ReaderSearchAction { page, surah, phrase }
 
@@ -89,7 +92,7 @@ class _AyahCommentDialogState extends State<_AyahCommentDialog> {
     return AlertDialog(
       title: Text(
         '${widget.initialComment == null ? 'Tambah' : 'Edit'} Komentar '
-        '${getSurahNameEnglish(widget.surah)} ${widget.surah}:${widget.ayah}',
+        '${getSurahName(widget.surah)} ${widget.surah}:${widget.ayah}',
       ),
       content: Form(
         key: _formKey,
@@ -136,7 +139,11 @@ class QuranReaderScreen extends StatefulWidget {
 class _QuranReaderScreenState extends State<QuranReaderScreen> {
   int? _loadingFontPage;
   int? _navigationTargetPage;
+  int _fontPreloadGeneration = 0;
   bool _isPreparingReader = true;
+  bool _isChromeVisible = false;
+  bool _isTranslationMode = false;
+  int? _translationSurahId;
   String? _readerLoadError;
   final ValueNotifier<_OfflineDataState> _offlineData =
       ValueNotifier<_OfflineDataState>(const _OfflineDataState());
@@ -185,6 +192,10 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
     setState(() {
       _isPreparingReader = false;
     });
+
+    // Keep the neighbouring pages ready so the next swipe is not delayed by
+    // font registration (each Quran page uses its own QCF font family).
+    unawaited(_preparePageFonts(1));
   }
 
   @override
@@ -201,149 +212,168 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
 
     return Scaffold(
       drawer: _buildDrawer(context),
-      appBar: AppBar(
-        title: const Text('Alquran'),
-        actions: <Widget>[
-          if (!QcfFontLoader.isFontLoaded(provider.currentPage))
-            IconButton(
-              tooltip: _isFontLoading(provider.currentPage)
-                  ? 'Menyiapkan font halaman ${provider.currentPage}'
-                  : 'Unduh font halaman ${provider.currentPage}',
-              onPressed: _isFontLoading(provider.currentPage)
-                  ? null
-                  : () => _downloadPageFont(provider.currentPage),
-              icon: _isFontLoading(provider.currentPage)
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.download),
-            ),
-          ValueListenableBuilder<_OfflineDataState>(
-            valueListenable: _offlineData,
-            builder:
-                (
-                  BuildContext context,
-                  _OfflineDataState offlineData,
-                  Widget? child,
-                ) {
-                  final int percentage = offlineData.percentage;
-                  final String tooltip = offlineData.isScanning
-                      ? 'Memeriksa font Mushaf offline'
-                      : offlineData.isDownloading
-                      ? 'Menyiapkan font Mushaf offline: $percentage%'
-                      : offlineData.error != null
-                      ? 'Gagal memeriksa font offline. Ketuk untuk mencoba lagi.'
-                      : percentage == 100
-                      ? 'Semua 604 halaman siap dibaca offline'
-                      : 'Font offline $percentage%. Ketuk untuk menyiapkan semua halaman';
-                  return IconButton(
-                    tooltip: tooltip,
-                    onPressed:
-                        offlineData.isScanning ||
-                            offlineData.isDownloading ||
-                            percentage == 100
+      appBar: _isChromeVisible
+          ? AppBar(
+              title: _buildAppBarTitle(context, provider),
+              actions: <Widget>[
+                if (!QcfFontLoader.isFontLoaded(provider.currentPage))
+                  IconButton(
+                    tooltip: _isFontLoading(provider.currentPage)
+                        ? 'Menyiapkan font halaman ${provider.currentPage}'
+                        : 'Unduh font halaman ${provider.currentPage}',
+                    onPressed: _isFontLoading(provider.currentPage)
                         ? null
-                        : offlineData.error != null
-                        ? _refreshOfflinePages
-                        : _downloadAllOfflinePages,
-                    icon: SizedBox(
-                      width: 36,
-                      height: 36,
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: <Widget>[
-                          CircularProgressIndicator(
-                            value: offlineData.isScanning
-                                ? null
-                                : percentage / 100,
-                            backgroundColor: Colors.red,
-                            valueColor: const AlwaysStoppedAnimation<Color>(
-                              Colors.green,
-                            ),
-                            strokeWidth: 3,
-                          ),
-                          Text(
-                            offlineData.isScanning ? '…' : '$percentage%',
-                            style: Theme.of(context).textTheme.labelSmall
-                                ?.copyWith(fontWeight: FontWeight.bold),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-          ),
-          IconButton(
-            icon: const Icon(Icons.bookmarks),
-            tooltip: 'Bookmark',
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (BuildContext context) => const BookmarkTreeScreen(),
-                ),
-              );
-            },
-          ),
-          IconButton(
-            icon: Icon(
-              isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-            ),
-            tooltip: isDark
-                ? 'Beralih ke mode terang'
-                : 'Beralih ke mode gelap',
-            onPressed: () => provider.setDarkMode(!isDark),
-          ),
-          ValueListenableBuilder<_AyahCommentPanelState>(
-            valueListenable: _commentPanelState,
-            builder:
-                (
-                  BuildContext context,
-                  _AyahCommentPanelState panelState,
-                  Widget? child,
-                ) => IconButton(
-                  icon: Icon(
-                    panelState.isVisible
-                        ? Icons.comment
-                        : Icons.comments_disabled_outlined,
+                        : () => _downloadPageFont(provider.currentPage),
+                    icon: _isFontLoading(provider.currentPage)
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.download),
                   ),
-                  tooltip: panelState.comment == null
-                      ? 'Pilih ayat untuk menampilkan komentar'
-                      : panelState.isVisible
-                      ? 'Sembunyikan komentar ayat'
-                      : 'Tampilkan komentar ayat',
-                  onPressed: panelState.comment == null
-                      ? null
-                      : () {
-                          _commentPanelState.value = _AyahCommentPanelState(
-                            comment: panelState.comment,
-                            isVisible: !panelState.isVisible,
-                            anchorY: panelState.anchorY,
-                            placement: panelState.placement,
-                          );
-                        },
+                ValueListenableBuilder<_OfflineDataState>(
+                  valueListenable: _offlineData,
+                  builder:
+                      (
+                        BuildContext context,
+                        _OfflineDataState offlineData,
+                        Widget? child,
+                      ) {
+                        final int percentage = offlineData.percentage;
+                        final String tooltip = offlineData.isScanning
+                            ? 'Memeriksa font Mushaf offline'
+                            : offlineData.isDownloading
+                            ? 'Menyiapkan font Mushaf offline: $percentage%'
+                            : offlineData.error != null
+                            ? 'Gagal memeriksa font offline. Ketuk untuk mencoba lagi.'
+                            : percentage == 100
+                            ? 'Semua 604 halaman siap dibaca offline'
+                            : 'Font offline $percentage%. Ketuk untuk menyiapkan semua halaman';
+                        return IconButton(
+                          tooltip: tooltip,
+                          onPressed:
+                              offlineData.isScanning ||
+                                  offlineData.isDownloading ||
+                                  percentage == 100
+                              ? null
+                              : offlineData.error != null
+                              ? _refreshOfflinePages
+                              : _downloadAllOfflinePages,
+                          icon: SizedBox(
+                            width: 36,
+                            height: 36,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: <Widget>[
+                                CircularProgressIndicator(
+                                  value: offlineData.isScanning
+                                      ? null
+                                      : percentage / 100,
+                                  backgroundColor: Colors.red,
+                                  valueColor:
+                                      const AlwaysStoppedAnimation<Color>(
+                                        Colors.green,
+                                      ),
+                                  strokeWidth: 3,
+                                ),
+                                Text(
+                                  offlineData.isScanning ? '…' : '$percentage%',
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
                 ),
-          ),
-          Switch(
-            value: provider.isTajweed,
-            onChanged: (_) => provider.toggleTajweed(),
-          ),
-          IconButton(
-            icon: Icon(
-              provider.dualPage ? Icons.grid_view : Icons.layers,
-              color: provider.dualPage
-                  ? Theme.of(context).colorScheme.primary
-                  : null,
-            ),
-            tooltip: provider.dualPage
-                ? 'Mode 2 Halaman / Spread'
-                : 'Mode 1 Halaman',
-            onPressed: () => provider.setDualPage(!provider.dualPage),
-          ),
-        ],
-      ),
+                IconButton(
+                  icon: const Icon(Icons.bookmarks),
+                  tooltip: 'Bookmark',
+                  onPressed: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (BuildContext context) =>
+                            const BookmarkTreeScreen(),
+                      ),
+                    );
+                  },
+                ),
+                IconButton(
+                  icon: Icon(
+                    isDark
+                        ? Icons.light_mode_outlined
+                        : Icons.dark_mode_outlined,
+                  ),
+                  tooltip: isDark
+                      ? 'Beralih ke mode terang'
+                      : 'Beralih ke mode gelap',
+                  onPressed: () => provider.setDarkMode(!isDark),
+                ),
+                ValueListenableBuilder<_AyahCommentPanelState>(
+                  valueListenable: _commentPanelState,
+                  builder:
+                      (
+                        BuildContext context,
+                        _AyahCommentPanelState panelState,
+                        Widget? child,
+                      ) => IconButton(
+                        icon: Icon(
+                          panelState.isVisible
+                              ? Icons.comment
+                              : Icons.comments_disabled_outlined,
+                        ),
+                        tooltip: panelState.comment == null
+                            ? 'Pilih ayat untuk menampilkan komentar'
+                            : panelState.isVisible
+                            ? 'Sembunyikan komentar ayat'
+                            : 'Tampilkan komentar ayat',
+                        onPressed: panelState.comment == null
+                            ? null
+                            : () {
+                                _commentPanelState.value =
+                                    _AyahCommentPanelState(
+                                      comment: panelState.comment,
+                                      isVisible: !panelState.isVisible,
+                                      anchorY: panelState.anchorY,
+                                      placement: panelState.placement,
+                                    );
+                              },
+                      ),
+                ),
+                IconButton(
+                  icon: Icon(
+                    Icons.translate,
+                    color: _isTranslationMode
+                        ? Theme.of(context).colorScheme.primary
+                        : null,
+                  ),
+                  tooltip: _isTranslationMode
+                      ? 'Kembali ke Mushaf'
+                      : 'Mode Terjemah',
+                  onPressed: () => _toggleTranslationMode(provider),
+                ),
+                Switch(
+                  value: provider.isTajweed,
+                  onChanged: (_) => provider.toggleTajweed(),
+                ),
+                IconButton(
+                  icon: Icon(
+                    provider.dualPage ? Icons.grid_view : Icons.layers,
+                    color: provider.dualPage
+                        ? Theme.of(context).colorScheme.primary
+                        : null,
+                  ),
+                  tooltip: provider.dualPage
+                      ? 'Mode 2 Halaman / Spread'
+                      : 'Mode 1 Halaman',
+                  onPressed: () => provider.setDualPage(!provider.dualPage),
+                ),
+              ],
+            )
+          : null,
       body: Stack(
         children: <Widget>[
           Positioned.fill(
@@ -367,82 +397,103 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
                       },
                 ),
                 Expanded(
-                  child: _readerLoadError != null
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(24),
+                  child: GestureDetector(
+                    key: const ValueKey<String>('quran-reader-tap-area'),
+                    behavior: HitTestBehavior.translucent,
+                    onTap: _toggleChrome,
+                    child: _readerLoadError != null
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: <Widget>[
+                                  const Icon(
+                                    Icons.menu_book_outlined,
+                                    size: 48,
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    _readerLoadError!,
+                                    textAlign: TextAlign.center,
+                                  ),
+                                  const SizedBox(height: 16),
+                                  FilledButton.icon(
+                                    onPressed: _prepareReader,
+                                    icon: const Icon(Icons.refresh),
+                                    label: const Text('Coba Lagi'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                        : _isTranslationMode
+                        ? _buildTranslationMode(provider, isDark)
+                        : _isPreparingReader ||
+                              !QuranRepository.instance.isReady
+                        ? Center(
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: <Widget>[
-                                const Icon(Icons.menu_book_outlined, size: 48),
-                                const SizedBox(height: 12),
-                                Text(
-                                  _readerLoadError!,
-                                  textAlign: TextAlign.center,
-                                ),
+                                const CircularProgressIndicator(),
                                 const SizedBox(height: 16),
-                                FilledButton.icon(
-                                  onPressed: _prepareReader,
-                                  icon: const Icon(Icons.refresh),
-                                  label: const Text('Coba Lagi'),
+                                Text(
+                                  'Membuka data Mushaf dari perangkat...',
+                                  style: TextStyle(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                  ),
                                 ),
                               ],
                             ),
+                          )
+                        : LayoutBuilder(
+                            builder:
+                                (
+                                  BuildContext context,
+                                  BoxConstraints constraints,
+                                ) {
+                                  final bool twoPage =
+                                      provider.dualPage &&
+                                      constraints.maxWidth >= 750;
+                                  return QuranPageView(
+                                    pageController: provider.pageController,
+                                    highlights: provider.highlights,
+                                    isDarkMode: isDark,
+                                    isTajweed: provider.isTajweed,
+                                    enableTwoPageLayout: twoPage,
+                                    // Build pages as soon as they enter the
+                                    // viewport. Deferring them until the swipe
+                                    // settles leaves a blank page visible for a
+                                    // moment (the "jeda" between pages).
+                                    deferNewPages: false,
+                                    onPageChanged: (int? pageNumber) {
+                                      if (pageNumber != null) {
+                                        _handlePageChanged(
+                                          provider,
+                                          pageNumber,
+                                        );
+                                      }
+                                    },
+                                    onLongPress:
+                                        (
+                                          int surah,
+                                          int ayah,
+                                          LongPressStartDetails details,
+                                        ) {
+                                          _showAyahMenu(surah, ayah, details);
+                                        },
+                                    topBar: _isChromeVisible
+                                        ? _buildTopBar(context, provider)
+                                        : null,
+                                    bottomBar: _isChromeVisible
+                                        ? _buildBottomBar()
+                                        : null,
+                                  );
+                                },
                           ),
-                        )
-                      : _isPreparingReader || !QuranRepository.instance.isReady
-                      ? Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: <Widget>[
-                              const CircularProgressIndicator(),
-                              const SizedBox(height: 16),
-                              Text(
-                                'Membuka data Mushaf dari perangkat...',
-                                style: TextStyle(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurfaceVariant,
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
-                      : LayoutBuilder(
-                          builder:
-                              (
-                                BuildContext context,
-                                BoxConstraints constraints,
-                              ) {
-                                final bool twoPage =
-                                    provider.dualPage &&
-                                    constraints.maxWidth >= 750;
-                                return QuranPageView(
-                                  pageController: provider.pageController,
-                                  highlights: provider.highlights,
-                                  isDarkMode: isDark,
-                                  isTajweed: provider.isTajweed,
-                                  enableTwoPageLayout: twoPage,
-                                  deferNewPages: true,
-                                  deferDelay: const Duration(milliseconds: 50),
-                                  onPageChanged: (int? pageNumber) {
-                                    if (pageNumber != null) {
-                                      _handlePageChanged(provider, pageNumber);
-                                    }
-                                  },
-                                  onLongPress:
-                                      (
-                                        int surah,
-                                        int ayah,
-                                        LongPressStartDetails details,
-                                      ) {
-                                        _showAyahMenu(surah, ayah, details);
-                                      },
-                                  topBar: _buildTopBar(context, provider),
-                                  bottomBar: _buildBottomBar(),
-                                );
-                              },
-                        ),
+                  ),
                 ),
                 ValueListenableBuilder<_AyahCommentPanelState>(
                   valueListenable: _commentPanelState,
@@ -519,7 +570,7 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
                 children: <Widget>[
                   Expanded(
                     child: Text(
-                      'Komentar • ${getSurahNameEnglish(comment.surahId)} '
+                      'Komentar • ${getSurahName(comment.surahId)} '
                       '${comment.surahId}:${comment.ayahId}',
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
@@ -556,8 +607,50 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
             pageNumber) {
       _commentPanelState.value = const _AyahCommentPanelState();
     }
-    if (!QcfFontLoader.isFontLoaded(pageNumber)) {
-      unawaited(_downloadPageFont(pageNumber, showSuccess: false));
+    unawaited(_preparePageFonts(pageNumber));
+  }
+
+  /// Loads the font for [pageNumber] and the pages directly before/after it.
+  ///
+  /// QCF fonts are page-specific, so without preloading the incoming page is
+  /// blank for a moment while its font is registered. Preloading the neighbours
+  /// makes normal sequential swiping (and swiping back) render immediately.
+  Future<void> _preparePageFonts(int pageNumber) async {
+    final int generation = ++_fontPreloadGeneration;
+    final List<int> pages = <int>[
+      pageNumber,
+      if (pageNumber + 1 <= QcfFontLoader.totalPages) pageNumber + 1,
+      if (pageNumber - 1 >= 1) pageNumber - 1,
+    ];
+
+    for (int index = 0; index < pages.length; index++) {
+      final int page = pages[index];
+      if (!mounted || generation != _fontPreloadGeneration) {
+        return;
+      }
+
+      if (QcfFontLoader.isFontLoaded(page)) {
+        _markOfflinePageReady(page);
+        continue;
+      }
+
+      try {
+        await QcfFontLoader.ensureFontLoaded(page);
+      } catch (error) {
+        debugPrint('Gagal memuat font halaman $page: $error');
+        continue;
+      }
+
+      if (!mounted || generation != _fontPreloadGeneration) {
+        return;
+      }
+      _markOfflinePageReady(page);
+
+      // The current page may already have been laid out with a fallback font
+      // while its QCF font was loading. Rebuild it once the font is ready.
+      if (index == 0) {
+        setState(() {});
+      }
     }
   }
 
@@ -669,6 +762,7 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
       setState(() {
         _loadingFontPage = null;
       });
+      unawaited(_preparePageFonts(pageNumber));
       if (showSuccess) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Font halaman $pageNumber berhasil dimuat')),
@@ -712,13 +806,16 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
       return;
     }
     final QuranProvider provider = context.read<QuranProvider>();
-    setState(() {
-      _navigationTargetPage = pageNumber;
-    });
+    final bool needsFont = !QcfFontLoader.isFontLoaded(pageNumber);
+    if (needsFont) {
+      setState(() {
+        _navigationTargetPage = pageNumber;
+      });
+    }
 
     try {
-      await WidgetsBinding.instance.endOfFrame;
-      if (!QcfFontLoader.isFontLoaded(pageNumber)) {
+      if (needsFont) {
+        await WidgetsBinding.instance.endOfFrame;
         await QcfFontLoader.ensureFontLoaded(pageNumber);
       }
       if (!mounted) {
@@ -738,12 +835,143 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
         );
       }
     } finally {
-      if (mounted) {
+      if (mounted && _navigationTargetPage != null) {
         setState(() {
           _navigationTargetPage = null;
         });
       }
     }
+  }
+
+  Widget _buildAppBarTitle(BuildContext context, QuranProvider provider) {
+    final ThemeData theme = Theme.of(context);
+    final QuranPageInfo info = QuranPageInfo.forPage(provider.currentPage);
+    final String detailLabel = _isTranslationMode
+        ? 'Terjemah • ${getSurahName(_translationSurahId ?? 1)}'
+        : info.label;
+
+    return Row(
+      children: <Widget>[
+        const Text('Alquran'),
+        const SizedBox(width: 10),
+        Container(
+          width: 1,
+          height: 18,
+          color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.35),
+        ),
+        const SizedBox(width: 10),
+        Flexible(
+          child: Text(
+            detailLabel,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _toggleChrome() {
+    setState(() {
+      _isChromeVisible = !_isChromeVisible;
+    });
+  }
+
+  void _toggleTranslationMode(QuranProvider provider) {
+    setState(() {
+      _isTranslationMode = !_isTranslationMode;
+      if (_isTranslationMode) {
+        _translationSurahId ??=
+            QuranPageInfo.forPage(provider.currentPage).primarySurahId ?? 1;
+      }
+    });
+  }
+
+  void _selectTranslationSurah(int surahNumber) {
+    if (surahNumber < 1 || surahNumber > totalSurahCount) {
+      return;
+    }
+    setState(() {
+      _translationSurahId = surahNumber;
+    });
+  }
+
+  Future<void> _showTranslationSurahSearch() async {
+    final int? surahNumber = await showDialog<int>(
+      context: context,
+      builder: (BuildContext context) => const SurahSearchDialog(),
+    );
+    if (surahNumber == null || !mounted) {
+      return;
+    }
+    _selectTranslationSurah(surahNumber);
+  }
+
+  Widget _buildTranslationMode(QuranProvider provider, bool isDark) {
+    final int surahNumber = _translationSurahId ?? 1;
+
+    return Column(
+      children: <Widget>[
+        if (_isChromeVisible) _buildTranslationTopBar(surahNumber),
+        Expanded(
+          child: TranslationSurahView(
+            key: ValueKey<int>(surahNumber),
+            surahNumber: surahNumber,
+            isTajweed: provider.isTajweed,
+            isDarkMode: isDark,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTranslationTopBar(int surahNumber) {
+    return SizedBox(
+      height: 48,
+      child: Row(
+        children: <Widget>[
+          IconButton(
+            icon: const Icon(Icons.chevron_left),
+            tooltip: 'Surah sebelumnya',
+            onPressed: surahNumber > 1
+                ? () => _selectTranslationSurah(surahNumber - 1)
+                : null,
+          ),
+          Expanded(
+            child: Center(
+              child: Text(
+                '${getSurahName(surahNumber)} • '
+                '$surahNumber / $totalSurahCount',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.chevron_right),
+            tooltip: 'Surah berikutnya',
+            onPressed: surahNumber < totalSurahCount
+                ? () => _selectTranslationSurah(surahNumber + 1)
+                : null,
+          ),
+          IconButton(
+            icon: const Icon(Icons.search),
+            tooltip: 'Pilih surah',
+            onPressed: _showTranslationSurahSearch,
+          ),
+          IconButton(
+            icon: const Icon(Icons.menu_book),
+            tooltip: 'Kembali ke Mushaf',
+            onPressed: () =>
+                _toggleTranslationMode(context.read<QuranProvider>()),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildTopBar(BuildContext context, QuranProvider provider) {
@@ -961,6 +1189,19 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
                 context,
                 MaterialPageRoute(
                   builder: (BuildContext context) => const LogAndKhatamScreen(),
+                ),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.insights),
+            title: const Text('Statistik Bacaan'),
+            onTap: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (BuildContext context) =>
+                      const ReadingStatisticsScreen(),
                 ),
               );
             },

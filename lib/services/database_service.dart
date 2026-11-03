@@ -4,6 +4,7 @@ import 'package:path/path.dart';
 import '../models/bookmark_item.dart';
 import '../models/bookmark_node.dart';
 import '../models/ayah_comment.dart';
+import '../models/ayah_translation.dart';
 import '../models/daily_log.dart';
 
 /// Service singleton untuk koneksi database lokal (SQLite) aplikasi Alquran.
@@ -28,7 +29,7 @@ class DatabaseService {
     final String databasesPath = await getDatabasesPath();
     final Database db = await openDatabase(
       join(databasesPath, 'alquran.db'),
-      version: 3,
+      version: 4,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -70,6 +71,7 @@ class DatabaseService {
     await _createUniqueBookmarkItemIndex(db);
 
     await _createAyahCommentsTable(db);
+    await _createAyahTranslationsTable(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -79,6 +81,9 @@ class DatabaseService {
     if (oldVersion < 3) {
       await _removeDuplicateBookmarkItems(db);
       await _createUniqueBookmarkItemIndex(db);
+    }
+    if (oldVersion < 4) {
+      await _createAyahTranslationsTable(db);
     }
   }
 
@@ -106,6 +111,18 @@ class DatabaseService {
         surah_id INTEGER NOT NULL,
         ayah_id INTEGER NOT NULL,
         comment TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (surah_id, ayah_id)
+      )
+    ''');
+  }
+
+  Future<void> _createAyahTranslationsTable(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE ayah_translations (
+        surah_id INTEGER NOT NULL,
+        ayah_id INTEGER NOT NULL,
+        translation TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         PRIMARY KEY (surah_id, ayah_id)
       )
@@ -347,6 +364,40 @@ class DatabaseService {
       'surah_id': surahId,
       'ayah_id': ayahId,
       'comment': comment,
+      'updated_at': DateTime.now().toIso8601String(),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  // ============================================================
+  // Ayah Translations
+  // ============================================================
+
+  Future<List<AyahTranslation>> getAyahTranslations({
+    required int surahId,
+  }) async {
+    final Database db = await database;
+    final List<Map<String, dynamic>> rows = await db.query(
+      'ayah_translations',
+      where: 'surah_id = ?',
+      whereArgs: <int>[surahId],
+      orderBy: 'ayah_id ASC',
+    );
+
+    return rows
+        .map((Map<String, dynamic> row) => AyahTranslation.fromMap(row))
+        .toList();
+  }
+
+  Future<void> upsertAyahTranslation({
+    required int surahId,
+    required int ayahId,
+    required String translation,
+  }) async {
+    final Database db = await database;
+    await db.insert('ayah_translations', <String, dynamic>{
+      'surah_id': surahId,
+      'ayah_id': ayahId,
+      'translation': translation,
       'updated_at': DateTime.now().toIso8601String(),
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
