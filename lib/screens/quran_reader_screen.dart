@@ -9,9 +9,7 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../providers/quran_provider.dart';
-import '../models/ayah_comment.dart';
 import '../models/quran_page_info.dart';
-import '../services/ayah_comment_service.dart';
 import '../services/bookmark_service.dart';
 import '../services/daily_log_service.dart';
 import '../services/offline_data_service.dart';
@@ -22,8 +20,6 @@ import 'quran_search_dialogs.dart';
 import 'reading_statistics_screen.dart';
 
 enum _ReaderSearchAction { page, surah, phrase }
-
-enum _CommentPanelPlacement { abovePage, belowPage }
 
 class _OfflineDataState {
   const _OfflineDataState({
@@ -40,92 +36,6 @@ class _OfflineDataState {
 
   int get percentage =>
       (cachedPages.length * 100 / QcfFontLoader.totalPages).floor();
-}
-
-class _AyahCommentPanelState {
-  const _AyahCommentPanelState({
-    this.comment,
-    this.isVisible = false,
-    this.anchorY = 0,
-    this.placement = _CommentPanelPlacement.belowPage,
-  });
-
-  final AyahComment? comment;
-  final bool isVisible;
-  final double anchorY;
-  final _CommentPanelPlacement placement;
-}
-
-class _AyahCommentDialog extends StatefulWidget {
-  const _AyahCommentDialog({
-    required this.surah,
-    required this.ayah,
-    this.initialComment,
-  });
-
-  final int surah;
-  final int ayah;
-  final String? initialComment;
-
-  @override
-  State<_AyahCommentDialog> createState() => _AyahCommentDialogState();
-}
-
-class _AyahCommentDialogState extends State<_AyahCommentDialog> {
-  late final TextEditingController _controller;
-  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(text: widget.initialComment ?? '');
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(
-        '${widget.initialComment == null ? 'Tambah' : 'Edit'} Komentar '
-        '${getSurahName(widget.surah)} ${widget.surah}:${widget.ayah}',
-      ),
-      content: Form(
-        key: _formKey,
-        child: TextFormField(
-          controller: _controller,
-          autofocus: true,
-          minLines: 3,
-          maxLines: 6,
-          decoration: const InputDecoration(
-            hintText: 'Tulis komentar untuk ayat ini',
-            border: OutlineInputBorder(),
-          ),
-          validator: (String? value) => value == null || value.trim().isEmpty
-              ? 'Komentar tidak boleh kosong'
-              : null,
-        ),
-      ),
-      actions: <Widget>[
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Batal'),
-        ),
-        FilledButton(
-          onPressed: () {
-            if (_formKey.currentState!.validate()) {
-              Navigator.pop(context, _controller.text.trim());
-            }
-          },
-          child: const Text('Simpan'),
-        ),
-      ],
-    );
-  }
 }
 
 /// Layar utama pembaca Mushaf Al-Qur'an (15 baris per halaman).
@@ -147,8 +57,6 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
   String? _readerLoadError;
   final ValueNotifier<_OfflineDataState> _offlineData =
       ValueNotifier<_OfflineDataState>(const _OfflineDataState());
-  final ValueNotifier<_AyahCommentPanelState> _commentPanelState =
-      ValueNotifier<_AyahCommentPanelState>(const _AyahCommentPanelState());
 
   @override
   void initState() {
@@ -201,7 +109,6 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
   @override
   void dispose() {
     _offlineData.dispose();
-    _commentPanelState.dispose();
     super.dispose();
   }
 
@@ -241,6 +148,9 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
                         Widget? child,
                       ) {
                         final int percentage = offlineData.percentage;
+                        if (!offlineData.isScanning && percentage == 100) {
+                          return const SizedBox.shrink();
+                        }
                         final String tooltip = offlineData.isScanning
                             ? 'Memeriksa font Mushaf offline'
                             : offlineData.isDownloading
@@ -253,13 +163,9 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
                         return IconButton(
                           tooltip: tooltip,
                           onPressed:
-                              offlineData.isScanning ||
-                                  offlineData.isDownloading ||
-                                  percentage == 100
+                              offlineData.isScanning || percentage == 100
                               ? null
-                              : offlineData.error != null
-                              ? _refreshOfflinePages
-                              : _downloadAllOfflinePages,
+                              : () => _onOfflineIndicatorTap(offlineData),
                           icon: SizedBox(
                             width: 36,
                             height: 36,
@@ -312,40 +218,9 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
                       : 'Beralih ke mode gelap',
                   onPressed: () => provider.setDarkMode(!isDark),
                 ),
-                ValueListenableBuilder<_AyahCommentPanelState>(
-                  valueListenable: _commentPanelState,
-                  builder:
-                      (
-                        BuildContext context,
-                        _AyahCommentPanelState panelState,
-                        Widget? child,
-                      ) => IconButton(
-                        icon: Icon(
-                          panelState.isVisible
-                              ? Icons.comment
-                              : Icons.comments_disabled_outlined,
-                        ),
-                        tooltip: panelState.comment == null
-                            ? 'Pilih ayat untuk menampilkan komentar'
-                            : panelState.isVisible
-                            ? 'Sembunyikan komentar ayat'
-                            : 'Tampilkan komentar ayat',
-                        onPressed: panelState.comment == null
-                            ? null
-                            : () {
-                                _commentPanelState.value =
-                                    _AyahCommentPanelState(
-                                      comment: panelState.comment,
-                                      isVisible: !panelState.isVisible,
-                                      anchorY: panelState.anchorY,
-                                      placement: panelState.placement,
-                                    );
-                              },
-                      ),
-                ),
                 IconButton(
                   icon: Icon(
-                    Icons.translate,
+                    Icons.edit_outlined,
                     color: _isTranslationMode
                         ? Theme.of(context).colorScheme.primary
                         : null,
@@ -379,23 +254,6 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
           Positioned.fill(
             child: Column(
               children: <Widget>[
-                ValueListenableBuilder<_AyahCommentPanelState>(
-                  valueListenable: _commentPanelState,
-                  builder:
-                      (
-                        BuildContext context,
-                        _AyahCommentPanelState panelState,
-                        Widget? child,
-                      ) {
-                        if (!panelState.isVisible ||
-                            panelState.comment == null ||
-                            panelState.placement !=
-                                _CommentPanelPlacement.abovePage) {
-                          return const SizedBox.shrink();
-                        }
-                        return _buildAyahCommentPanel(panelState);
-                      },
-                ),
                 Expanded(
                   child: GestureDetector(
                     key: const ValueKey<String>('quran-reader-tap-area'),
@@ -480,9 +338,9 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
                                         (
                                           int surah,
                                           int ayah,
-                                          LongPressStartDetails details,
+                                          LongPressStartDetails _,
                                         ) {
-                                          _showAyahMenu(surah, ayah, details);
+                                          _showAyahMenu(surah, ayah);
                                         },
                                     topBar: _isChromeVisible
                                         ? _buildTopBar(context, provider)
@@ -494,23 +352,6 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
                                 },
                           ),
                   ),
-                ),
-                ValueListenableBuilder<_AyahCommentPanelState>(
-                  valueListenable: _commentPanelState,
-                  builder:
-                      (
-                        BuildContext context,
-                        _AyahCommentPanelState panelState,
-                        Widget? child,
-                      ) {
-                        if (!panelState.isVisible ||
-                            panelState.comment == null ||
-                            panelState.placement !=
-                                _CommentPanelPlacement.belowPage) {
-                          return const SizedBox.shrink();
-                        }
-                        return _buildAyahCommentPanel(panelState);
-                      },
                 ),
               ],
             ),
@@ -551,62 +392,8 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
     );
   }
 
-  Widget _buildAyahCommentPanel(_AyahCommentPanelState panelState) {
-    final AyahComment comment = panelState.comment!;
-    final ColorScheme colorScheme = Theme.of(context).colorScheme;
-
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      color: colorScheme.secondaryContainer,
-      child: SizedBox(
-        height: 142,
-        width: double.infinity,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Row(
-                children: <Widget>[
-                  Expanded(
-                    child: Text(
-                      'Komentar • ${getSurahName(comment.surahId)} '
-                      '${comment.surahId}:${comment.ayahId}',
-                      style: Theme.of(context).textTheme.titleSmall,
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Edit komentar',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: () => unawaited(
-                      _editAyahComment(
-                        comment.surahId,
-                        comment.ayahId,
-                        panelState.anchorY,
-                      ),
-                    ),
-                    icon: const Icon(Icons.edit_outlined, size: 20),
-                  ),
-                ],
-              ),
-              Expanded(
-                child: SingleChildScrollView(child: Text(comment.comment)),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   void _handlePageChanged(QuranProvider provider, int pageNumber) {
     provider.handlePageChanged(pageNumber);
-    final AyahComment? selectedComment = _commentPanelState.value.comment;
-    if (selectedComment != null &&
-        getPageNumber(selectedComment.surahId, selectedComment.ayahId) !=
-            pageNumber) {
-      _commentPanelState.value = const _AyahCommentPanelState();
-    }
     unawaited(_preparePageFonts(pageNumber));
   }
 
@@ -655,6 +442,31 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
   }
 
   bool _isFontLoading(int pageNumber) => _loadingFontPage == pageNumber;
+
+  void _onOfflineIndicatorTap(_OfflineDataState offlineData) {
+    final int percentage = offlineData.percentage;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            offlineData.isDownloading
+                ? 'Unduhan font Mushaf: $percentage% selesai'
+                : 'Persiapan font Mushaf dimulai dari $percentage%',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+    if (offlineData.isDownloading) {
+      return;
+    }
+    if (offlineData.error != null) {
+      unawaited(_refreshOfflinePages());
+      return;
+    }
+    unawaited(_downloadAllOfflinePages());
+  }
 
   Future<void> _refreshOfflinePages() async {
     _offlineData.value = _OfflineDataState(
@@ -1223,7 +1035,7 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
     );
   }
 
-  void _showAyahMenu(int surah, int ayah, LongPressStartDetails details) {
+  void _showAyahMenu(int surah, int ayah) {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -1234,16 +1046,6 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                ListTile(
-                  leading: const Icon(Icons.edit_note),
-                  title: const Text('Tampilkan / Beri Komentar'),
-                  onTap: () {
-                    Navigator.pop(context);
-                    unawaited(
-                      _openAyahComment(surah, ayah, details.globalPosition.dy),
-                    );
-                  },
-                ),
                 ListTile(
                   leading: const Icon(Icons.copy),
                   title: const Text('Salin Ayat'),
@@ -1282,118 +1084,6 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
         );
       },
     );
-  }
-
-  Future<void> _openAyahComment(int surah, int ayah, double anchorY) async {
-    AyahComment? comment;
-    try {
-      comment = await AyahCommentService.instance.getComment(
-        surahId: surah,
-        ayahId: ayah,
-      );
-    } on Exception catch (error, stackTrace) {
-      _showCommentError('memuat', error, stackTrace);
-      return;
-    }
-
-    if (!mounted) {
-      return;
-    }
-
-    if (comment == null) {
-      await _editAyahComment(surah, ayah, anchorY);
-      return;
-    }
-
-    _commentPanelState.value = _AyahCommentPanelState(
-      comment: comment,
-      anchorY: anchorY,
-      placement: _commentPlacementForAnchor(anchorY),
-      isVisible: true,
-    );
-  }
-
-  Future<void> _editAyahComment(int surah, int ayah, double anchorY) async {
-    AyahComment? existingComment;
-    try {
-      existingComment = await AyahCommentService.instance.getComment(
-        surahId: surah,
-        ayahId: ayah,
-      );
-    } on Exception catch (error, stackTrace) {
-      _showCommentError('memuat', error, stackTrace);
-      return;
-    }
-
-    if (!mounted) {
-      return;
-    }
-
-    final String? comment = await showDialog<String>(
-      context: context,
-      builder: (BuildContext dialogContext) => _AyahCommentDialog(
-        surah: surah,
-        ayah: ayah,
-        initialComment: existingComment?.comment,
-      ),
-    );
-
-    if (comment == null) {
-      return;
-    }
-
-    try {
-      await AyahCommentService.instance.saveComment(
-        surahId: surah,
-        ayahId: ayah,
-        comment: comment,
-      );
-    } on Exception catch (error, stackTrace) {
-      _showCommentError('menyimpan', error, stackTrace);
-      return;
-    }
-
-    if (!mounted) {
-      return;
-    }
-
-    _commentPanelState.value = _AyahCommentPanelState(
-      comment: AyahComment(
-        surahId: surah,
-        ayahId: ayah,
-        comment: comment,
-        updatedAt: DateTime.now(),
-      ),
-      anchorY: anchorY,
-      placement: _commentPlacementForAnchor(anchorY),
-      isVisible: false,
-    );
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Komentar tersimpan. Tekan tombol komentar untuk menampilkannya.',
-        ),
-      ),
-    );
-  }
-
-  _CommentPanelPlacement _commentPlacementForAnchor(double anchorY) {
-    return anchorY >= MediaQuery.sizeOf(context).height / 2
-        ? _CommentPanelPlacement.abovePage
-        : _CommentPanelPlacement.belowPage;
-  }
-
-  void _showCommentError(
-    String action,
-    Exception error,
-    StackTrace stackTrace,
-  ) {
-    debugPrint('Gagal $action komentar ayat: $error\n$stackTrace');
-    if (!mounted) {
-      return;
-    }
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text('Gagal $action komentar ayat')));
   }
 
   Ayah? _findAyah(int surah, int ayahNumber) {
