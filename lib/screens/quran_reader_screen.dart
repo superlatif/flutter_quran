@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:qcf_quran_plus/qcf_quran_plus.dart';
@@ -61,10 +62,27 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(_applySystemUiMode(immersive: !_isChromeVisible));
     unawaited(_prepareReader());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_refreshOfflinePages());
     });
+  }
+
+  /// Requests immersive (hidden system bars) mode while the reader is in
+  /// full-screen mode and restores the normal bars when the chrome is shown.
+  ///
+  /// Immersive mode is not supported on every Android version (edge-to-edge is
+  /// enforced from API 35/36), so the [SafeArea] around the reader body is what
+  /// guarantees that the status bar, navigation bar, and DeX taskbar never
+  /// cover the Mushaf.
+  Future<void> _applySystemUiMode({required bool immersive}) {
+    if (kIsWeb) {
+      return Future<void>.value();
+    }
+    return SystemChrome.setEnabledSystemUIMode(
+      immersive ? SystemUiMode.immersiveSticky : SystemUiMode.edgeToEdge,
+    );
   }
 
   Future<void> _prepareReader() async {
@@ -108,6 +126,8 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
 
   @override
   void dispose() {
+    // Never leave the system bars hidden after leaving the reader.
+    unawaited(_applySystemUiMode(immersive: false));
     _offlineData.dispose();
     super.dispose();
   }
@@ -162,8 +182,7 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
                             : 'Font offline $percentage%. Ketuk untuk menyiapkan semua halaman';
                         return IconButton(
                           tooltip: tooltip,
-                          onPressed:
-                              offlineData.isScanning || percentage == 100
+                          onPressed: offlineData.isScanning || percentage == 100
                               ? null
                               : () => _onOfflineIndicatorTap(offlineData),
                           icon: SizedBox(
@@ -249,145 +268,151 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
               ],
             )
           : null,
-      body: Stack(
-        children: <Widget>[
-          Positioned.fill(
-            child: Column(
-              children: <Widget>[
-                Expanded(
-                  child: GestureDetector(
-                    key: const ValueKey<String>('quran-reader-tap-area'),
-                    behavior: HitTestBehavior.translucent,
-                    onTap: _toggleChrome,
-                    child: _readerLoadError != null
-                        ? Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(24),
+      body: SafeArea(
+        // The AppBar already accounts for the top inset when it is visible.
+        // The bottom inset is always respected so navigation bars, gesture
+        // areas, and the DeX taskbar never cover the Mushaf.
+        top: !_isChromeVisible,
+        child: Stack(
+          children: <Widget>[
+            Positioned.fill(
+              child: Column(
+                children: <Widget>[
+                  Expanded(
+                    child: GestureDetector(
+                      key: const ValueKey<String>('quran-reader-tap-area'),
+                      behavior: HitTestBehavior.translucent,
+                      onTap: _toggleChrome,
+                      child: _readerLoadError != null
+                          ? Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: <Widget>[
+                                    const Icon(
+                                      Icons.menu_book_outlined,
+                                      size: 48,
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      _readerLoadError!,
+                                      textAlign: TextAlign.center,
+                                    ),
+                                    const SizedBox(height: 16),
+                                    FilledButton.icon(
+                                      onPressed: _prepareReader,
+                                      icon: const Icon(Icons.refresh),
+                                      label: const Text('Coba Lagi'),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            )
+                          : _isTranslationMode
+                          ? _buildTranslationMode(provider, isDark)
+                          : _isPreparingReader ||
+                                !QuranRepository.instance.isReady
+                          ? Center(
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: <Widget>[
-                                  const Icon(
-                                    Icons.menu_book_outlined,
-                                    size: 48,
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    _readerLoadError!,
-                                    textAlign: TextAlign.center,
-                                  ),
+                                  const CircularProgressIndicator(),
                                   const SizedBox(height: 16),
-                                  FilledButton.icon(
-                                    onPressed: _prepareReader,
-                                    icon: const Icon(Icons.refresh),
-                                    label: const Text('Coba Lagi'),
+                                  Text(
+                                    'Membuka data Mushaf dari perangkat...',
+                                    style: TextStyle(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .onSurfaceVariant,
+                                    ),
                                   ),
                                 ],
                               ),
+                            )
+                          : LayoutBuilder(
+                              builder:
+                                  (
+                                    BuildContext context,
+                                    BoxConstraints constraints,
+                                  ) {
+                                    final bool twoPage =
+                                        provider.dualPage &&
+                                        constraints.maxWidth >= 750;
+                                    return QuranPageView(
+                                      pageController: provider.pageController,
+                                      highlights: provider.highlights,
+                                      isDarkMode: isDark,
+                                      isTajweed: provider.isTajweed,
+                                      enableTwoPageLayout: twoPage,
+                                      // Build pages as soon as they enter the
+                                      // viewport. Deferring them until the swipe
+                                      // settles leaves a blank page visible for a
+                                      // moment (the "jeda" between pages).
+                                      deferNewPages: false,
+                                      onPageChanged: (int? pageNumber) {
+                                        if (pageNumber != null) {
+                                          _handlePageChanged(
+                                            provider,
+                                            pageNumber,
+                                          );
+                                        }
+                                      },
+                                      onLongPress:
+                                          (
+                                            int surah,
+                                            int ayah,
+                                            LongPressStartDetails _,
+                                          ) {
+                                            _showAyahMenu(surah, ayah);
+                                          },
+                                      topBar: _isChromeVisible
+                                          ? _buildTopBar(context, provider)
+                                          : null,
+                                      bottomBar: _isChromeVisible
+                                          ? _buildBottomBar()
+                                          : null,
+                                    );
+                                  },
                             ),
-                          )
-                        : _isTranslationMode
-                        ? _buildTranslationMode(provider, isDark)
-                        : _isPreparingReader ||
-                              !QuranRepository.instance.isReady
-                        ? Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: <Widget>[
-                                const CircularProgressIndicator(),
-                                const SizedBox(height: 16),
-                                Text(
-                                  'Membuka data Mushaf dari perangkat...',
-                                  style: TextStyle(
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .onSurfaceVariant,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          )
-                        : LayoutBuilder(
-                            builder:
-                                (
-                                  BuildContext context,
-                                  BoxConstraints constraints,
-                                ) {
-                                  final bool twoPage =
-                                      provider.dualPage &&
-                                      constraints.maxWidth >= 750;
-                                  return QuranPageView(
-                                    pageController: provider.pageController,
-                                    highlights: provider.highlights,
-                                    isDarkMode: isDark,
-                                    isTajweed: provider.isTajweed,
-                                    enableTwoPageLayout: twoPage,
-                                    // Build pages as soon as they enter the
-                                    // viewport. Deferring them until the swipe
-                                    // settles leaves a blank page visible for a
-                                    // moment (the "jeda" between pages).
-                                    deferNewPages: false,
-                                    onPageChanged: (int? pageNumber) {
-                                      if (pageNumber != null) {
-                                        _handlePageChanged(
-                                          provider,
-                                          pageNumber,
-                                        );
-                                      }
-                                    },
-                                    onLongPress:
-                                        (
-                                          int surah,
-                                          int ayah,
-                                          LongPressStartDetails _,
-                                        ) {
-                                          _showAyahMenu(surah, ayah);
-                                        },
-                                    topBar: _isChromeVisible
-                                        ? _buildTopBar(context, provider)
-                                        : null,
-                                    bottomBar: _isChromeVisible
-                                        ? _buildBottomBar()
-                                        : null,
-                                  );
-                                },
-                          ),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          if (_navigationTargetPage case final int targetPage)
-            Positioned.fill(
-              child: ColoredBox(
-                color: Theme.of(context).colorScheme.scrim
-                    .withValues(alpha: 0.35),
-                child: Center(
-                  child: Card(
-                    margin: const EdgeInsets.all(32),
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          const CircularProgressIndicator(),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Menyiapkan halaman $targetPage...',
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Mohon tunggu sebentar. Mushaf sedang dibuka.',
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
+            if (_navigationTargetPage case final int targetPage)
+              Positioned.fill(
+                child: ColoredBox(
+                  color: Theme.of(context).colorScheme.scrim
+                      .withValues(alpha: 0.35),
+                  child: Center(
+                    child: Card(
+                      margin: const EdgeInsets.all(32),
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            const CircularProgressIndicator(),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Menyiapkan halaman $targetPage...',
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Mohon tunggu sebentar. Mushaf sedang dibuka.',
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -688,9 +713,11 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
   }
 
   void _toggleChrome() {
+    final bool showChrome = !_isChromeVisible;
     setState(() {
-      _isChromeVisible = !_isChromeVisible;
+      _isChromeVisible = showChrome;
     });
+    unawaited(_applySystemUiMode(immersive: !showChrome));
   }
 
   void _toggleTranslationMode(QuranProvider provider) {
