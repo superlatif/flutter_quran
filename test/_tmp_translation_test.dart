@@ -1,5 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:quran2/main.dart';
@@ -8,9 +12,21 @@ void main() {
   setUpAll(() {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+
+    const MethodChannel pathProvider = MethodChannel(
+      'plugins.flutter.io/path_provider',
+    );
+    final Directory tempDirectory = Directory.systemTemp.createTempSync(
+      'quran_test_',
+    );
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(pathProvider, (MethodCall call) async {
+          return tempDirectory.path;
+        });
   });
 
-  testWidgets('translation mode opens an editable field', (
+  testWidgets('translation mode shows the meaning toolbar', (
     WidgetTester tester,
   ) async {
     tester.view.physicalSize = const Size(420, 900);
@@ -24,7 +40,7 @@ void main() {
     );
     await tester.pump();
 
-    final Finder translate = find.byIcon(Icons.translate);
+    final Finder translate = find.byIcon(Icons.history_edu);
     expect(translate, findsOneWidget);
 
     await tester.tap(translate);
@@ -34,15 +50,9 @@ void main() {
     );
     await tester.pump();
 
-    debugPrint(
-      'textfields: ${find.byType(TextField).evaluate().length}',
-    );
-    debugPrint(
-      'progress: ${find.byType(CircularProgressIndicator).evaluate().length}',
-    );
-    debugPrint(
-      'error: ${find.textContaining('belum berhasil').evaluate().length}',
-    );
-    expect(find.byType(TextField), findsWidgets);
+    expect(find.textContaining('belum berhasil'), findsNothing);
+    expect(find.byTooltip('Berbagi Catatan'), findsOneWidget);
+    expect(find.byTooltip('Pengaturan Makna'), findsOneWidget);
+    expect(find.textContaining('Makna Gandul'), findsWidgets);
   });
 }

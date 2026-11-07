@@ -13,7 +13,9 @@ import '../../providers/quran_provider.dart';
 import '../models/quran_page_info.dart';
 import '../services/bookmark_service.dart';
 import '../services/daily_log_service.dart';
+import '../services/meaning_settings_service.dart';
 import '../services/offline_data_service.dart';
+import '../widgets/meaning_dialogs.dart';
 import '../widgets/translation_surah_view.dart';
 import 'bookmark_tree_screen.dart';
 import 'log_khatam_screen.dart';
@@ -55,6 +57,7 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
   bool _isChromeVisible = false;
   bool _isTranslationMode = false;
   int? _translationSurahId;
+  int _translationRefreshToken = 0;
   String? _readerLoadError;
   final ValueNotifier<_OfflineDataState> _offlineData =
       ValueNotifier<_OfflineDataState>(const _OfflineDataState());
@@ -239,14 +242,14 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
                 ),
                 IconButton(
                   icon: Icon(
-                    Icons.edit_outlined,
+                    _isTranslationMode ? Icons.menu_book : Icons.history_edu,
                     color: _isTranslationMode
                         ? Theme.of(context).colorScheme.primary
                         : null,
                   ),
                   tooltip: _isTranslationMode
                       ? 'Kembali ke Mushaf'
-                      : 'Mode Terjemah',
+                      : 'Mode Makna Gandul',
                   onPressed: () => _toggleTranslationMode(provider),
                 ),
                 Switch(
@@ -684,7 +687,7 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
     final ThemeData theme = Theme.of(context);
     final QuranPageInfo info = QuranPageInfo.forPage(provider.currentPage);
     final String detailLabel = _isTranslationMode
-        ? 'Terjemah • ${getSurahName(_translationSurahId ?? 1)}'
+        ? 'Makna Gandul • ${getSurahName(_translationSurahId ?? 1)}'
         : info.label;
 
     return Row(
@@ -762,6 +765,7 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
             surahNumber: surahNumber,
             isTajweed: provider.isTajweed,
             isDarkMode: isDark,
+            refreshToken: _translationRefreshToken,
           ),
         ),
       ],
@@ -801,6 +805,30 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
             icon: const Icon(Icons.search),
             tooltip: 'Pilih surah',
             onPressed: _showTranslationSurahSearch,
+          ),
+          IconButton(
+            icon: const Icon(Icons.tune),
+            tooltip: 'Pengaturan Makna',
+            onPressed: () => showMeaningSettingsDialog(
+              context: context,
+              settings: MeaningSettingsService.instance,
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.ios_share),
+            tooltip: 'Berbagi Catatan',
+            onPressed: () => showMeaningExportImportDialog(
+              context: context,
+              surah: surahNumber,
+              ayah: 1,
+              onImported: () {
+                if (mounted) {
+                  setState(() {
+                    _translationRefreshToken++;
+                  });
+                }
+              },
+            ),
           ),
           IconButton(
             icon: const Icon(Icons.menu_book),
