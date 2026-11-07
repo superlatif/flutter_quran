@@ -320,57 +320,74 @@ class _TranslationSurahViewState extends State<TranslationSurahView> {
           ),
           if (notes.isNotEmpty) ...<Widget>[
             const SizedBox(height: 10),
-            ...notes.map(
-              (VerseNote note) => Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Material(
-                  color: colors.secondaryContainer.withValues(alpha: 0.45),
-                  borderRadius: BorderRadius.circular(8),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(8),
-                    onTap: () => _openNotes(verseNumber),
-                    child: Padding(
-                      padding: const EdgeInsets.all(10),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          Text(
-                            note.noteType.label,
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: colors.onSecondaryContainer,
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * 0.5,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: notes
+                      .map(
+                        (VerseNote note) => Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Material(
+                            color: colors.secondaryContainer.withValues(
+                              alpha: 0.45,
+                            ),
+                            borderRadius: BorderRadius.circular(8),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(8),
+                              onTap: () => _openNotes(verseNumber),
+                              child: Padding(
+                                padding: const EdgeInsets.all(10),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: <Widget>[
+                                    Text(
+                                      note.noteType.label,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        color: colors.onSecondaryContainer,
+                                      ),
+                                    ),
+                                    if (note.contentPegon?.isNotEmpty ?? false)
+                                      Text(
+                                        note.contentPegon!,
+                                        textDirection: TextDirection.rtl,
+                                        style: const TextStyle(
+                                          fontSize: 15,
+                                          height: 1.8,
+                                        ),
+                                      ),
+                                    if (note.contentLatin?.isNotEmpty ?? false)
+                                      Text(
+                                        note.contentLatin!,
+                                        textDirection: TextDirection.ltr,
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          height: 1.5,
+                                          color: colors.onSurfaceVariant,
+                                        ),
+                                      ),
+                                    if (note.reference?.isNotEmpty ?? false)
+                                      Text(
+                                        note.reference!,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontStyle: FontStyle.italic,
+                                          color: colors.outline,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
                             ),
                           ),
-                          if (note.contentPegon?.isNotEmpty ?? false)
-                            Text(
-                              note.contentPegon!,
-                              textDirection: TextDirection.rtl,
-                              style: const TextStyle(fontSize: 15, height: 1.8),
-                            ),
-                          if (note.contentLatin?.isNotEmpty ?? false)
-                            Text(
-                              note.contentLatin!,
-                              textDirection: TextDirection.ltr,
-                              style: TextStyle(
-                                fontSize: 13,
-                                height: 1.5,
-                                color: colors.onSurfaceVariant,
-                              ),
-                            ),
-                          if (note.reference?.isNotEmpty ?? false)
-                            Text(
-                              note.reference!,
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontStyle: FontStyle.italic,
-                                color: colors.outline,
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
+                        ),
+                      )
+                      .toList(),
                 ),
               ),
             ),
