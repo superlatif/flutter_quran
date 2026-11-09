@@ -70,7 +70,7 @@ Kelola *state* pengaturan dengan *key-value* berikut:
 | `display_script` | String | `'pegon'`, `'latin'`, `'both'` | `'both'` | Mode tampilan makna |
 | `input_mode` | String | `'auto'`, `'pegon'`, `'latin'` | `'auto'` | Mode keyboard saat edit |
 | `show_base_meaning`| bool | `true`, `false` | `true` | Tampilkan makna bawaan jika ada |
-| `meaning_style` | String | `'block'`, `'indented'`, `'italic_45'` | `'block'` | Gaya tampilan makna gandul |
+| `meaning_style` | String | `'block'`, `'indented'`, `'italic_30'` | `'block'` | Gaya tampilan makna gandul |
 
 ---
 
@@ -79,8 +79,8 @@ Gaya penulisan makna di bawah kata Arab (`meaning_style`):
 
 1. **`block` (Default):** Makna ditampilkan lurus tepat di bawah kata Arab secara vertikal, lebar terbungkus (*text wrap*).
 2. **`indented`:** Makna ditampilkan dengan lekukan (*indent*) ke kanan di bawah kata.
-3. **`italic_45`:**
-   * Teks makna dimiringkan $\pm 45^\circ$ ke kanan/kiri (gaya khas Tafsir Al-Ibrīz).
+3. **`italic_30`:**
+   * Teks makna dimiringkan $\pm 30^\circ$ ke kanan/kiri (gaya khas Tafsir Al-Ibrīz).
    * Gunakan font size lebih kecil (11–12sp).
    * **Fallback Logic:** Jika panjang string makna > $N$ karakter (atau melebihi batas batas visual), otomatis beralih render ke mode `block` agar teks tidak terpotong.
 

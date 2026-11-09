@@ -326,13 +326,13 @@ class _MeaningUnitView extends StatelessWidget {
           child: content,
         );
         break;
-      case MeaningStyle.italic45:
+      case MeaningStyle.italic30:
         // Teks panjang berisiko terpotong saat dimiringkan; fallback ke blok.
         if (plainLength > 18) {
           break;
         }
         content = Transform.rotate(
-          angle: -0.785398,
+          angle: -0.523599,
           alignment: Alignment.center,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),

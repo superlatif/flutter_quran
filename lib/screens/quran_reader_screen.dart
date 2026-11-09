@@ -17,6 +17,7 @@ import '../services/meaning_settings_service.dart';
 import '../services/offline_data_service.dart';
 import '../widgets/meaning_dialogs.dart';
 import '../widgets/translation_surah_view.dart';
+import 'about_screen.dart';
 import 'bookmark_tree_screen.dart';
 import 'log_khatam_screen.dart';
 import 'quran_search_dialogs.dart';
@@ -1081,6 +1082,19 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
                 context,
                 MaterialPageRoute(
                   builder: (BuildContext context) => const BookmarkTreeScreen(),
+                ),
+              );
+            },
+          ),
+          const Divider(height: 1),
+          ListTile(
+            leading: const Icon(Icons.info_outline),
+            title: const Text('Tentang Kami'),
+            onTap: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (BuildContext context) => const AboutScreen(),
                 ),
               );
             },

@@ -43,7 +43,7 @@ enum MeaningInputMode {
 enum MeaningStyle {
   block('block', 'Blok'),
   indented('indented', 'Menjorok'),
-  italic45('italic_45', 'Miring 45°');
+  italic30('italic_30', 'Miring 30°');
 
   const MeaningStyle(this.value, this.label);
 
@@ -51,8 +51,11 @@ enum MeaningStyle {
   final String label;
 
   static MeaningStyle fromValue(String? value) {
+    // Nilai lama 'italic_45' tetap dipetakan agar pengaturan tersimpan
+    // pengguna tidak hilang setelah sudut diubah menjadi 30°.
+    final String? normalized = value == 'italic_45' ? italic30.value : value;
     return MeaningStyle.values.firstWhere(
-      (MeaningStyle style) => style.value == value,
+      (MeaningStyle style) => style.value == normalized,
       orElse: () => MeaningStyle.block,
     );
   }
