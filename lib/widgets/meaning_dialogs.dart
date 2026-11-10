@@ -5,6 +5,7 @@ import '../models/word_meaning.dart';
 import '../services/database_service.dart';
 import '../services/meaning_settings_service.dart';
 import '../services/meaning_share_service.dart';
+import '../services/pegon_engine.dart';
 import 'pegon_toolbar.dart';
 
 Future<bool?> showWordMeaningEditor({
@@ -247,6 +248,10 @@ class _WordMeaningEditorDialogState extends State<_WordMeaningEditorDialog> {
                 hintText: 'Tulis makna dengan huruf Latin...',
                 border: OutlineInputBorder(),
               ),
+            ),
+            _LatinToPegonButton(
+              latinController: _latinController,
+              pegonController: _pegonController,
             ),
           ],
         ),
@@ -554,6 +559,10 @@ class _GroupMeaningDialogState extends State<_GroupMeaningDialog> {
                   hintText: 'Contoh: hamba Allah',
                   border: OutlineInputBorder(),
                 ),
+              ),
+              _LatinToPegonButton(
+                latinController: _latinController,
+                pegonController: _pegonController,
               ),
               const Divider(height: 24),
               Text('Pilih kata berurutan:', style: theme.textTheme.labelLarge),
@@ -920,6 +929,10 @@ class _NoteEditorDialogState extends State<_NoteEditorDialog> {
                 border: OutlineInputBorder(),
               ),
             ),
+            _LatinToPegonButton(
+              latinController: _latinController,
+              pegonController: _pegonController,
+            ),
             const SizedBox(height: 12),
             TextField(
               controller: _referenceController,
@@ -1279,6 +1292,45 @@ class _PegonTextField extends StatelessWidget {
         labelText: label,
         hintText: hint,
         border: const OutlineInputBorder(),
+      ),
+    );
+  }
+}
+
+/// Tombol bantu: mengonversi isi kolom Latin menjadi teks Pegon
+/// (lewat mesin konverter menu Pegon) lalu mengisinya ke kolom Pegon.
+class _LatinToPegonButton extends StatelessWidget {
+  const _LatinToPegonButton({
+    required this.latinController,
+    required this.pegonController,
+  });
+
+  final TextEditingController latinController;
+  final TextEditingController pegonController;
+
+  Future<void> _convert(BuildContext context) async {
+    final String latin = latinController.text.trim();
+    if (latin.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Isi dulu teks Latin yang akan dikonversi.'),
+        ),
+      );
+      return;
+    }
+    final PegonEngine engine = PegonEngine.instance;
+    await engine.load();
+    pegonController.text = engine.convertText(latin);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: AlignmentDirectional.centerEnd,
+      child: TextButton.icon(
+        onPressed: () => _convert(context),
+        icon: const Icon(Icons.translate, size: 18),
+        label: const Text('Konversi Latin → Pegon'),
       ),
     );
   }

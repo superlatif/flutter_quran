@@ -16,6 +16,9 @@ const List<String> _aboutParagraphs = <String>[
       'membantu Anda tetap konsisten dalam membaca Al-Qur\'an.',
   'Fitur tambahan berupa mode terjemah dimana anda dapat memberikan terjemah '
       'per kata dan keterangan ayat',
+  'Fitur Pegon membantu mengonversi teks Bahasa Indonesia menjadi aksara '
+      'Pegon yang bisa disalin ke kolom makna atau keterangan ayat pada mode '
+      'terjemah',
   'Kami berkomitmen untuk terus meningkatkan aplikasi ini berdasarkan masukan dari pengguna. '
       'Jika Anda memiliki saran atau menemukan bug, silakan hubungi kami ',
   'melalui email di abdulatifrokhman@gmail.com, phone 085259647790',

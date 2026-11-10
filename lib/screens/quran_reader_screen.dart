@@ -20,6 +20,7 @@ import '../widgets/translation_surah_view.dart';
 import 'about_screen.dart';
 import 'bookmark_tree_screen.dart';
 import 'log_khatam_screen.dart';
+import 'pegon_converter_screen.dart';
 import 'quran_search_dialogs.dart';
 import 'reading_statistics_screen.dart';
 
@@ -1082,6 +1083,20 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
                 context,
                 MaterialPageRoute(
                   builder: (BuildContext context) => const BookmarkTreeScreen(),
+                ),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.translate),
+            title: const Text('Pegon'),
+            subtitle: const Text('Konverter teks Indonesia ke Pegon'),
+            onTap: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (BuildContext context) =>
+                      const PegonConverterScreen(),
                 ),
               );
             },
