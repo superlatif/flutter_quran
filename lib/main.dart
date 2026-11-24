@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:provider/provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -45,6 +45,13 @@ class AlquranApp extends StatelessWidget {
               useMaterial3: true,
               brightness: Brightness.dark,
             ),
+            builder: (BuildContext context, Widget? child) {
+              // qcf_quran_plus 0.1.1 masih memakai package:flutter/material.dart.
+              // Bridge ini membuat ThemeData & MaterialLocalizations versi lama
+              // tetap tersedia sampai paket tersebut pindah ke material_ui.
+              // ignore: deprecated_member_use
+              return MaterialUiCompatibilityBridge(child: child!);
+            },
             home: const QuranReaderScreen(),
           );
         },

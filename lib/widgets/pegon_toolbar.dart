@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Toolbar karakter khusus Pegon yang muncul di atas keyboard.
 class PegonToolbar extends StatelessWidget {

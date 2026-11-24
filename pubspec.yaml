@@ -56,6 +56,9 @@ dependencies:
   path_provider: ^2.1.6
   share_plus: ^13.3.1
 
+  # Material Design (menggantikan package:flutter/material.dart sejak Flutter 3.47)
+  material_ui: ^1.11.0
+  speech_to_text: ^7.5.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -81,6 +84,8 @@ flutter:
   assets:
     - assets/images/icon.png
     - assets/data/exceptions.json
+    - assets/data/indonesian_schwa.tsv
+    - assets/data/INDONESIAN_SCHWA_LICENSE.txt
 
   # To add assets to your application, add an assets section, like this:
   # assets:

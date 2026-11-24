@@ -112,7 +112,7 @@ Untuk kata-kata biasa (non-Arab), gunakan pemetaan karakter fonetis standar Nusa
 
 * `y` $\rightarrow$ ي
 
-* `a, i, u, e, o` $\rightarrow$ Diatur berdasarkan posisi (awal, tengah, akhir) atau disesuaikan dengan kaidah Pegon gundul standar.
+* `a, i, u, e, o` $\rightarrow$ Diatur berdasarkan posisi (awal, tengah, akhir) atau disesuaikan dengan kaidah Pegon gundul standar. `e` pepet mengikuti kaidah lama; `e` taling diperlakukan seperti `i` menggunakan data pelafalan offline dan aturan imbuhan.
 
 ## 4. Panduan Implementasi Antarmuka (UI) untuk AI
 
@@ -134,4 +134,4 @@ AI harus memastikan kode lulus skenario uji berikut:
 
 * **Input:** `"bermusyawarah"` $\rightarrow$ **Output:** `بَرْمُشَاوَرَة` (Awalan diterjemahkan fonetis, kata dasar diambil dari kamus Arab).
 
-* **Input:** `"kepada bapak ibu"` $\rightarrow$ **Output:** `كفادا بافاك ايبو` (Diterjemahkan secara fonetis karena tidak ada di kamus Arab).
+* **Input:** `"kepada bapak ibu"` $\rightarrow$ **Output:** `كڤادا باڤاك ايبو` (Diterjemahkan secara fonetis karena tidak ada di kamus Arab; `e` pada imbuhan `ke-` dibaca pepet).

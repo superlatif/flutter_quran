@@ -1,5 +1,6 @@
 import '../models/conversion_result.dart';
 import 'exception_database.dart';
+import 'indonesian_schwa_resolver.dart';
 import 'pegon_stemmer.dart';
 
 /// Mesin utama transliterasi teks Latin (Bahasa Indonesia) ke aksara Pegon.
@@ -16,6 +17,7 @@ class PegonEngine {
   static final PegonEngine instance = PegonEngine._();
 
   final ExceptionDatabase _database = ExceptionDatabase.instance;
+  final IndonesianSchwaResolver _schwaResolver = IndonesianSchwaResolver();
   final PegonStemmer _stemmer = PegonStemmer.instance;
 
   /// Pemetaan konsonan dan digraf fonetis, diurutkan dari yang terpanjang
@@ -65,7 +67,8 @@ class PegonEngine {
   };
 
   /// Harakat untuk mode rekonstruksi imbuhan (mis. `ber` -> بَرْ).
-  /// `e` pepet dan `o` didekati dengan fatha/damma.
+  /// `e` pepet memakai fatha; `e` taling dinormalisasi menjadi `i`.
+  /// `o` didekati dengan damma.
   static const Map<String, String> _affixDiacritics = <String, String>{
     'a': 'َ',
     'i': 'ِ',
@@ -80,8 +83,13 @@ class PegonEngine {
 
   int get dictionaryEntryCount => _database.entryCount;
 
-  /// Menyiapkan mesin: memuat kamus pengecualian dari aset lokal.
-  Future<void> load() => _database.load();
+  /// Menyiapkan mesin dengan memuat kamus pengecualian dan pelafalan lokal.
+  Future<void> load() async {
+    await Future.wait<void>(<Future<void>>[
+      _database.load(),
+      _schwaResolver.load(),
+    ]);
+  }
 
   /// Mengonversi seluruh kalimat [text] menjadi teks Pegon.
   ///
@@ -123,10 +131,25 @@ class PegonEngine {
       );
     }
 
-    // 2. Kupas imbuhan lalu cek kata dasarnya di kamus.
+    final String normalized = _schwaResolver.mapTalingToI(cleaned);
+    if (normalized != cleaned) {
+      final String? normalizedDirect = _database.lookup(normalized);
+      if (normalizedDirect != null) {
+        return ConversionResult(
+          input: word,
+          output: normalizedDirect,
+          source: ConversionSource.dictionary,
+        );
+      }
+    }
+
+    // 2. Kupas imbuhan dari ejaan asli, lalu cocokkan akar dengan ejaan
+    //    asli maupun bentuk yang menormalkan `e` menjadi `i`.
     final StemResult stem = _stemmer.stem(cleaned);
     if (stem.hasAffix) {
-      final String? rootTranslation = _database.lookup(stem.root);
+      final String? rootTranslation =
+          _database.lookup(stem.root) ??
+          _database.lookup(_schwaResolver.mapTalingToI(stem.root));
       if (rootTranslation != null) {
         return ConversionResult(
           input: word,
@@ -164,14 +187,15 @@ class PegonEngine {
   ///
   /// Kaidah yang dipakai (Pegon gundul standar):
   /// - Vokal `a`, `i`, `u` ditulis sebagai huruf vokal panjang (ا ي و).
-  /// - `e` pepet dan `o` di tengah kata digugurkan (gundul).
+  /// - `e` pepet mengikuti kaidah lama; `e` taling diperlakukan sebagai `i`.
+  /// - `o` di tengah kata digugurkan (gundul).
   /// - Vokal di awal kata ditulis dengan alif pembawa (ا، اي، او).
   /// - Vokal kembar dirapatkan menjadi satu huruf.
   ///
   /// Contoh: `kepada` -> كڤادا، `ibu` -> ايبو، `bapak` -> باڤاك.
   String phoneticConvert(String word) {
     final StringBuffer buffer = StringBuffer();
-    final String text = word.toLowerCase();
+    final String text = _schwaResolver.mapTalingToI(word.toLowerCase());
     bool previousWasVowel = false;
     String? previousVowel;
 
@@ -204,7 +228,7 @@ class PegonEngine {
           // -> اير), bukan bentuk awal kata (ااي).
           buffer.write(_longVowels[ch] ?? '');
         }
-        // `e`/`o` di tengah kata digugurkan (gundul).
+        // `o` di tengah kata digugurkan (gundul).
         previousWasVowel = true;
         previousVowel = ch;
         i++;

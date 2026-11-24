@@ -1,4 +1,10 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:speech_to_text/speech_recognition_result.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 
 import '../models/verse_note.dart';
 import '../models/word_meaning.dart';
@@ -6,6 +12,7 @@ import '../services/database_service.dart';
 import '../services/meaning_settings_service.dart';
 import '../services/meaning_share_service.dart';
 import '../services/pegon_engine.dart';
+import '../services/speech_input_service.dart';
 import 'pegon_toolbar.dart';
 
 Future<bool?> showWordMeaningEditor({
@@ -243,15 +250,22 @@ class _WordMeaningEditorDialogState extends State<_WordMeaningEditorDialog> {
               textDirection: TextDirection.ltr,
               minLines: 1,
               maxLines: 4,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Makna Latin',
                 hintText: 'Tulis makna dengan huruf Latin...',
-                border: OutlineInputBorder(),
+                border: const OutlineInputBorder(),
+                suffixIcon: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    if (defaultTargetPlatform == TargetPlatform.android)
+                      _LatinSpeechInputButton(controller: _latinController),
+                    _LatinToPegonButton(
+                      latinController: _latinController,
+                      pegonController: _pegonController,
+                    ),
+                  ],
+                ),
               ),
-            ),
-            _LatinToPegonButton(
-              latinController: _latinController,
-              pegonController: _pegonController,
             ),
           ],
         ),
@@ -554,15 +568,22 @@ class _GroupMeaningDialogState extends State<_GroupMeaningDialog> {
                 textDirection: TextDirection.ltr,
                 minLines: 1,
                 maxLines: 4,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Makna Gabungan (Latin)',
                   hintText: 'Contoh: hamba Allah',
-                  border: OutlineInputBorder(),
+                  border: const OutlineInputBorder(),
+                  suffixIcon: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      if (defaultTargetPlatform == TargetPlatform.android)
+                        _LatinSpeechInputButton(controller: _latinController),
+                      _LatinToPegonButton(
+                        latinController: _latinController,
+                        pegonController: _pegonController,
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              _LatinToPegonButton(
-                latinController: _latinController,
-                pegonController: _pegonController,
               ),
               const Divider(height: 24),
               Text('Pilih kata berurutan:', style: theme.textTheme.labelLarge),
@@ -923,15 +944,15 @@ class _NoteEditorDialogState extends State<_NoteEditorDialog> {
               textDirection: TextDirection.ltr,
               minLines: 2,
               maxLines: 6,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Isi Catatan (Latin)',
                 hintText: 'Tulis catatan Latin...',
-                border: OutlineInputBorder(),
+                border: const OutlineInputBorder(),
+                suffixIcon: _LatinToPegonButton(
+                  latinController: _latinController,
+                  pegonController: _pegonController,
+                ),
               ),
-            ),
-            _LatinToPegonButton(
-              latinController: _latinController,
-              pegonController: _pegonController,
             ),
             const SizedBox(height: 12),
             TextField(
@@ -1297,8 +1318,9 @@ class _PegonTextField extends StatelessWidget {
   }
 }
 
-/// Tombol bantu: mengonversi isi kolom Latin menjadi teks Pegon
-/// (lewat mesin konverter menu Pegon) lalu mengisinya ke kolom Pegon.
+/// Tombol bantu di dalam kolom Latin: mengonversi isi kolom Latin menjadi
+/// teks Pegon (lewat mesin konverter menu Pegon) lalu mengisinya ke kolom
+/// Pegon secara otomatis.
 class _LatinToPegonButton extends StatelessWidget {
   const _LatinToPegonButton({
     required this.latinController,
@@ -1320,18 +1342,231 @@ class _LatinToPegonButton extends StatelessWidget {
     }
     final PegonEngine engine = PegonEngine.instance;
     await engine.load();
-    pegonController.text = engine.convertText(latin);
+    final String pegon = engine.convertText(latin);
+    pegonController.value = TextEditingValue(
+      text: pegon,
+      selection: TextSelection.collapsed(offset: pegon.length),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Align(
-      alignment: AlignmentDirectional.centerEnd,
-      child: TextButton.icon(
-        onPressed: () => _convert(context),
-        icon: const Icon(Icons.translate, size: 18),
-        label: const Text('Konversi Latin → Pegon'),
-      ),
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: latinController,
+      builder: (BuildContext context, TextEditingValue value, Widget? child) {
+        final bool hasLatin = value.text.trim().isNotEmpty;
+        return IconButton(
+          onPressed: hasLatin ? () => _convert(context) : null,
+          icon: const Icon(Icons.translate),
+          iconSize: 20,
+          visualDensity: VisualDensity.compact,
+          tooltip: hasLatin
+              ? 'Konversi Latin → Pegon'
+              : 'Isi dulu teks Latin untuk dikonversi',
+        );
+      },
+    );
+  }
+}
+
+class _LatinSpeechInputButton extends StatefulWidget {
+  const _LatinSpeechInputButton({required this.controller});
+
+  final TextEditingController controller;
+
+  @override
+  State<_LatinSpeechInputButton> createState() =>
+      _LatinSpeechInputButtonState();
+}
+
+class _LatinSpeechInputButtonState extends State<_LatinSpeechInputButton> {
+  final SpeechInputService _speech = SpeechInputService.instance;
+
+  bool _isListening = false;
+  bool _isStarting = false;
+  bool _isFinalizing = false;
+  String _voiceInputBase = '';
+
+  @override
+  void dispose() {
+    if (_speech.isListening || _isListening || _isFinalizing) {
+      unawaited(_cancelSpeech());
+    }
+    super.dispose();
+  }
+
+  Future<void> _cancelSpeech() async {
+    try {
+      await _speech.cancel();
+    } on PlatformException catch (error) {
+      debugPrint('Gagal menghentikan input suara: $error');
+    }
+  }
+
+  Future<String> _indonesianLocaleId() async {
+    for (final locale in await _speech.locales()) {
+      final String localeId = locale.localeId.toLowerCase().replaceAll(
+        '_',
+        '-',
+      );
+      if (localeId == 'id' || localeId.startsWith('id-')) {
+        return locale.localeId;
+      }
+    }
+    return 'id_ID';
+  }
+
+  Future<void> _toggleVoiceInput() async {
+    if (_isStarting || _isFinalizing) {
+      return;
+    }
+    if (_isListening || _speech.isListening) {
+      try {
+        await _speech.stop();
+      } on PlatformException catch (error) {
+        if (mounted) {
+          setState(() {
+            _isListening = false;
+            _isFinalizing = false;
+          });
+        }
+        _showVoiceMessage('Gagal menghentikan input suara: $error');
+      }
+      return;
+    }
+
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _isStarting = true;
+      _isFinalizing = false;
+    });
+
+    try {
+      final bool available = await _speech.initialize(
+        onStatus: _handleSpeechStatus,
+        onError: _handleSpeechError,
+      );
+      if (!available) {
+        _showVoiceMessage(
+          'Pengenalan suara tidak tersedia. Periksa izin mikrofon dan '
+          'layanan pengenalan suara Android.',
+        );
+        return;
+      }
+      if (!mounted) {
+        return;
+      }
+
+      final String localeId = await _indonesianLocaleId();
+      if (!mounted) {
+        return;
+      }
+      _voiceInputBase = widget.controller.text;
+      await _speech.listen(onResult: _handleSpeechResult, localeId: localeId);
+      if (!mounted) {
+        await _cancelSpeech();
+        return;
+      }
+      setState(() {
+        _isListening = true;
+      });
+    } on ListenFailedException catch (error) {
+      _showVoiceMessage(
+        'Gagal memulai pengenalan suara: '
+        '${error.message ?? error.details ?? 'layanan tidak merespons'}',
+      );
+    } on PlatformException catch (error) {
+      _showVoiceMessage('Gagal mengakses pengenalan suara: $error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isStarting = false;
+        });
+      }
+    }
+  }
+
+  void _handleSpeechStatus(String status) {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isListening = status == 'listening';
+      if (status == 'notListening') {
+        _isFinalizing = true;
+      } else if (status == 'done') {
+        _isFinalizing = false;
+        _isStarting = false;
+      } else if (_isListening) {
+        _isFinalizing = false;
+        _isStarting = false;
+      }
+    });
+  }
+
+  void _handleSpeechError(String error) {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isListening = false;
+      _isStarting = false;
+      _isFinalizing = false;
+    });
+
+    final String message = switch (error) {
+      'error_permission' => 'Izin mikrofon diperlukan untuk input suara.',
+      'error_no_match' => 'Ucapan tidak dikenali. Silakan coba lagi.',
+      'error_language_not_supported' || 'error_language_unavailable' =>
+        'Bahasa Indonesia tidak didukung atau belum diunduh di perangkat.',
+      _ => 'Pengenalan suara gagal: $error',
+    };
+    _showVoiceMessage(message);
+  }
+
+  void _handleSpeechResult(SpeechRecognitionResult result) {
+    if (!mounted || result.recognizedWords.trim().isEmpty) {
+      return;
+    }
+
+    final bool needsSeparator =
+        _voiceInputBase.isNotEmpty && !RegExp(r'\s$').hasMatch(_voiceInputBase);
+    final String text =
+        '$_voiceInputBase${needsSeparator ? ' ' : ''}'
+        '${result.recognizedWords.trim()}';
+    widget.controller.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    if (result.finalResult && mounted) {
+      setState(() {
+        _isListening = false;
+        _isStarting = false;
+        _isFinalizing = false;
+      });
+    }
+  }
+
+  void _showVoiceMessage(String message) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      key: const ValueKey<String>('latin-voice-input'),
+      tooltip: _isListening
+          ? 'Berhenti mendengarkan'
+          : 'Masukkan teks dengan suara',
+      onPressed: _isStarting || _isFinalizing ? null : _toggleVoiceInput,
+      color: _isListening
+          ? Theme.of(context).colorScheme.error
+          : Theme.of(context).colorScheme.primary,
+      icon: Icon(_isListening ? Icons.stop_circle_outlined : Icons.mic_none),
     );
   }
 }

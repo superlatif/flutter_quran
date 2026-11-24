@@ -1,10 +1,14 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:speech_to_text/speech_recognition_result.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 
 import '../models/conversion_result.dart';
 import '../services/pegon_engine.dart';
+import '../services/speech_input_service.dart';
 
 /// Halaman konverter teks Bahasa Indonesia ke aksara Pegon.
 ///
@@ -20,8 +24,13 @@ class PegonConverterScreen extends StatefulWidget {
 class _PegonConverterScreenState extends State<PegonConverterScreen> {
   final TextEditingController _inputController = TextEditingController();
   final PegonEngine _engine = PegonEngine.instance;
+  final SpeechInputService _speech = SpeechInputService.instance;
 
   bool _isEngineReady = false;
+  bool _isListening = false;
+  bool _isStartingVoiceInput = false;
+  bool _isFinalizingVoiceInput = false;
+  String _voiceInputBase = '';
   String _output = '';
 
   @override
@@ -51,9 +60,20 @@ class _PegonConverterScreenState extends State<PegonConverterScreen> {
 
   @override
   void dispose() {
+    if (_speech.isListening || _isListening || _isFinalizingVoiceInput) {
+      unawaited(_cancelSpeech());
+    }
     _inputController.removeListener(_convert);
     _inputController.dispose();
     super.dispose();
+  }
+
+  Future<void> _cancelSpeech() async {
+    try {
+      await _speech.cancel();
+    } on PlatformException catch (error) {
+      debugPrint('Gagal menghentikan input suara: $error');
+    }
   }
 
   Future<void> _copyOutput() async {
@@ -78,12 +98,167 @@ class _PegonConverterScreenState extends State<PegonConverterScreen> {
     _inputController.clear();
   }
 
+  Future<String> _indonesianLocaleId() async {
+    for (final locale in await _speech.locales()) {
+      final String localeId = locale.localeId.toLowerCase().replaceAll(
+        '_',
+        '-',
+      );
+      if (localeId == 'id' || localeId.startsWith('id-')) {
+        return locale.localeId;
+      }
+    }
+    return 'id_ID';
+  }
+
+  Future<void> _toggleVoiceInput() async {
+    if (_isStartingVoiceInput || _isFinalizingVoiceInput) {
+      return;
+    }
+
+    if (_isListening || _speech.isListening) {
+      try {
+        await _speech.stop();
+      } on PlatformException catch (error) {
+        if (mounted) {
+          setState(() {
+            _isListening = false;
+            _isFinalizingVoiceInput = false;
+          });
+        }
+        _showVoiceMessage('Gagal menghentikan input suara: $error');
+      }
+      return;
+    }
+
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _isStartingVoiceInput = true;
+      _isFinalizingVoiceInput = false;
+    });
+
+    try {
+      final bool available = await _speech.initialize(
+        onStatus: _handleSpeechStatus,
+        onError: _handleSpeechError,
+      );
+      if (!available) {
+        _showVoiceMessage(
+          'Pengenalan suara tidak tersedia. Periksa izin mikrofon dan '
+          'layanan pengenalan suara Android.',
+        );
+        return;
+      }
+
+      if (!mounted) {
+        return;
+      }
+      final String localeId = await _indonesianLocaleId();
+      if (!mounted) {
+        return;
+      }
+
+      _voiceInputBase = _inputController.text;
+      await _speech.listen(onResult: _handleSpeechResult, localeId: localeId);
+      if (!mounted) {
+        await _cancelSpeech();
+        return;
+      }
+      setState(() {
+        _isListening = true;
+      });
+    } on ListenFailedException catch (error) {
+      _showVoiceMessage(
+        'Gagal memulai pengenalan suara: '
+        '${error.message ?? error.details ?? 'layanan tidak merespons'}',
+      );
+    } on PlatformException catch (error) {
+      _showVoiceMessage('Gagal mengakses pengenalan suara: $error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isStartingVoiceInput = false;
+        });
+      }
+    }
+  }
+
+  void _handleSpeechStatus(String status) {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isListening = status == 'listening';
+      if (status == 'notListening') {
+        _isFinalizingVoiceInput = true;
+      } else if (status == 'done') {
+        _isFinalizingVoiceInput = false;
+        _isStartingVoiceInput = false;
+      } else if (_isListening) {
+        _isFinalizingVoiceInput = false;
+        _isStartingVoiceInput = false;
+      }
+    });
+  }
+
+  void _handleSpeechError(String error) {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isListening = false;
+      _isStartingVoiceInput = false;
+      _isFinalizingVoiceInput = false;
+    });
+
+    final String message = switch (error) {
+      'error_permission' => 'Izin mikrofon diperlukan untuk input suara.',
+      'error_no_match' => 'Ucapan tidak dikenali. Silakan coba lagi.',
+      'error_language_not_supported' || 'error_language_unavailable' =>
+        'Bahasa Indonesia tidak didukung atau belum diunduh di perangkat.',
+      _ => 'Pengenalan suara gagal: $error',
+    };
+    _showVoiceMessage(message);
+  }
+
+  void _handleSpeechResult(SpeechRecognitionResult result) {
+    if (!mounted || result.recognizedWords.trim().isEmpty) {
+      return;
+    }
+
+    final bool needsSeparator =
+        _voiceInputBase.isNotEmpty && !RegExp(r'\s$').hasMatch(_voiceInputBase);
+    final String text =
+        '$_voiceInputBase${needsSeparator ? ' ' : ''}'
+        '${result.recognizedWords.trim()}';
+    _inputController.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+    if (result.finalResult && mounted) {
+      setState(() {
+        _isListening = false;
+        _isStartingVoiceInput = false;
+        _isFinalizingVoiceInput = false;
+      });
+    }
+  }
+
+  void _showVoiceMessage(String message) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
   List<Widget> _buildWordBreakdown() {
     final RegExp wordPattern = RegExp("[A-Za-z']+");
     final List<Widget> chips = <Widget>[];
 
-    for (final RegExpMatch match
-        in wordPattern.allMatches(_inputController.text)) {
+    for (final RegExpMatch match in wordPattern.allMatches(
+      _inputController.text,
+    )) {
       final ConversionResult result = _engine.convertWord(match.group(0)!);
       chips.add(
         InputChip(
@@ -176,6 +351,10 @@ class _PegonConverterScreenState extends State<PegonConverterScreen> {
                     const SizedBox(height: 16),
                     TextField(
                       controller: _inputController,
+                      readOnly:
+                          _isListening ||
+                          _isStartingVoiceInput ||
+                          _isFinalizingVoiceInput,
                       maxLines: 5,
                       minLines: 3,
                       textInputAction: TextInputAction.newline,
@@ -190,15 +369,38 @@ class _PegonConverterScreenState extends State<PegonConverterScreen> {
                     Row(
                       children: <Widget>[
                         OutlinedButton.icon(
-                          onPressed: _inputController.text.isEmpty
+                          onPressed:
+                              _inputController.text.isEmpty ||
+                                  _isListening ||
+                                  _isStartingVoiceInput ||
+                                  _isFinalizingVoiceInput
                               ? null
                               : _clear,
                           icon: const Icon(Icons.backspace_outlined),
                           label: const Text('Bersihkan'),
                         ),
+                        if (defaultTargetPlatform == TargetPlatform.android)
+                          IconButton(
+                            key: const ValueKey<String>('pegon-voice-input'),
+                            tooltip: _isListening
+                                ? 'Berhenti mendengarkan'
+                                : 'Masukkan teks dengan suara',
+                            onPressed:
+                                _isStartingVoiceInput || _isFinalizingVoiceInput
+                                ? null
+                                : _toggleVoiceInput,
+                            color: _isListening ? colors.error : colors.primary,
+                            icon: Icon(
+                              _isListening
+                                  ? Icons.stop_circle_outlined
+                                  : Icons.mic_none,
+                            ),
+                          ),
                         const Spacer(),
                         FilledButton.icon(
-                          onPressed: _output.trim().isEmpty ? null : _copyOutput,
+                          onPressed: _output.trim().isEmpty
+                              ? null
+                              : _copyOutput,
                           icon: const Icon(Icons.copy),
                           label: const Text('Salin'),
                         ),
@@ -221,9 +423,9 @@ class _PegonConverterScreenState extends State<PegonConverterScreen> {
                         textDirection: TextDirection.rtl,
                         textAlign: TextAlign.right,
                         style: theme.textTheme.bodyLarge?.copyWith(
-                              fontSize: 22,
-                              height: 1.9,
-                            ),
+                          fontSize: 22,
+                          height: 1.9,
+                        ),
                       ),
                     ),
                     if (_output.trim().isNotEmpty) ...<Widget>[

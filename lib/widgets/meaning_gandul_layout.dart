@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../models/word_meaning.dart';
 import '../services/meaning_settings_service.dart';
@@ -94,7 +94,7 @@ class MeaningGandulLayout extends StatelessWidget {
             spacing: 6,
             runSpacing: 10,
             children: units.map((_MeaningUnit unit) {
-              final bool longMeaning = unit.hasLongMeaning;
+              final bool longMeaning = unit.hasLongMeaning(displayScript);
               final double desiredWidth = longMeaning
                   ? maxWordWidth * 2
                   : (unit.isGroup ? maxWordWidth * 1.8 : maxWordWidth);
@@ -142,17 +142,16 @@ class _MeaningUnit {
 
   /// Makna dianggap sangat panjang bila melebihi dua kali panjang teks Arab
   /// (dengan batas minimal agar kata pendek tidak langsung dianggap panjang).
-  bool get hasLongMeaning {
+  bool hasLongMeaning(DisplayScript displayScript) {
     final WordMeaning? value = meaning;
     if (value == null || !value.hasMeaning) {
       return false;
     }
     final int arabicLength = words.join().replaceAll(RegExp(r'\s+'), '').length;
-    final int meaningLength =
-        '${value.meaningPegon ?? ''}'
-                '${value.meaningLatin ?? ''}'
-            .replaceAll(RegExp(r'\s+'), '')
-            .length;
+    final int meaningLength = _visibleMeaningText(
+      value,
+      displayScript,
+    ).replaceAll(RegExp(r'\s+'), '').length;
     return meaningLength > 18 && meaningLength > arabicLength * 2;
   }
 }
@@ -266,9 +265,8 @@ class _MeaningUnitView extends StatelessWidget {
     final String? pegon = meaning?.meaningPegon?.trim();
     final String? latin = meaning?.meaningLatin?.trim();
 
-    if (displayScript != DisplayScript.latin &&
-        pegon != null &&
-        pegon.isNotEmpty) {
+    final bool hasPegon = pegon != null && pegon.isNotEmpty;
+    if (hasPegon) {
       texts.add(
         Text(
           pegon,
@@ -284,7 +282,8 @@ class _MeaningUnitView extends StatelessWidget {
         ),
       );
     }
-    if (displayScript != DisplayScript.pegon &&
+    if (!hasPegon &&
+        displayScript != DisplayScript.pegon &&
         latin != null &&
         latin.isNotEmpty) {
       if (texts.isNotEmpty) {
@@ -313,9 +312,10 @@ class _MeaningUnitView extends StatelessWidget {
       children: texts,
     );
 
-    final int plainLength = '${pegon ?? ''}${latin ?? ''}'
-        .replaceAll(RegExp(r'\s+'), '')
-        .length;
+    final int plainLength = _visibleMeaningText(
+      meaning,
+      displayScript,
+    ).replaceAll(RegExp(r'\s+'), '').length;
 
     switch (meaningStyle) {
       case MeaningStyle.block:
@@ -346,4 +346,15 @@ class _MeaningUnitView extends StatelessWidget {
 
     return content;
   }
+}
+
+String _visibleMeaningText(WordMeaning? meaning, DisplayScript displayScript) {
+  final String? pegon = meaning?.meaningPegon?.trim();
+  if (pegon != null && pegon.isNotEmpty) {
+    return pegon;
+  }
+  if (displayScript == DisplayScript.pegon) {
+    return '';
+  }
+  return meaning?.meaningLatin?.trim() ?? '';
 }

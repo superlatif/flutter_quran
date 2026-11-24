@@ -63,6 +63,39 @@ void main() {
       expect(engine.convertText('air'), 'اير');
     });
 
+    test('e taling diperlakukan seperti i', () {
+      expect(engine.phoneticConvert('enak'), 'ايناك');
+      expect(engine.phoneticConvert('ejek'), 'ايجيك');
+      expect(engine.phoneticConvert('daerah'), 'دايراه');
+      expect(engine.phoneticConvert('faedah'), 'فايداه');
+      expect(engine.convertText('sepak bola'), 'سيڤاك بلا');
+
+      final ConversionResult result = engine.convertWord('nasehat');
+      expect(result.output, 'نَصِيحَة');
+      expect(result.source, ConversionSource.dictionary);
+    });
+
+    test('e pepet memakai kaidah lama', () {
+      expect(engine.phoneticConvert('pegawai'), 'ڤڬاواي');
+      expect(engine.phoneticConvert('emas'), 'اېماس');
+      expect(engine.phoneticConvert('eram'), 'اېرام');
+      expect(engine.phoneticConvert('enau'), 'اېناو');
+      expect(engine.phoneticConvert('petugas'), 'ڤتوڬاس');
+      expect(engine.phoneticConvert('pelamar'), 'ڤلامار');
+      expect(engine.phoneticConvert('pelaku'), 'ڤلاكو');
+      expect(engine.phoneticConvert('elang'), 'اېلاڠ');
+      expect(engine.phoneticConvert('kereta'), 'كريتا');
+      expect(engine.phoneticConvert('semasa'), 'سماسا');
+      expect(engine.phoneticConvert('sejaman'), 'سجامان');
+      expect(engine.phoneticConvert('sesuai'), 'سسواي');
+    });
+
+    test('kamus tetap memakai ejaan persis sebelum normalisasi e taling', () {
+      final ConversionResult result = engine.convertWord('sebab');
+      expect(result.output, 'سَبَب');
+      expect(result.source, ConversionSource.dictionary);
+    });
+
     test('huruf besar dan tanda baca ditangani', () {
       expect(engine.convertText('Bismillah.'), 'بِسْمِ اللَّه.');
     });
