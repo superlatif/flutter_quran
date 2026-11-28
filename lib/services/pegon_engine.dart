@@ -1,6 +1,8 @@
 import '../models/conversion_result.dart';
 import 'exception_database.dart';
 import 'indonesian_schwa_resolver.dart';
+import 'pegon_correction_service.dart';
+import 'pegon_spelling_settings_service.dart';
 import 'pegon_stemmer.dart';
 
 /// Mesin utama transliterasi teks Latin (Bahasa Indonesia) ke aksara Pegon.
@@ -19,16 +21,26 @@ class PegonEngine {
   final ExceptionDatabase _database = ExceptionDatabase.instance;
   final IndonesianSchwaResolver _schwaResolver = IndonesianSchwaResolver();
   final PegonStemmer _stemmer = PegonStemmer.instance;
+  final PegonCorrectionService _corrections = PegonCorrectionService.instance;
+  final PegonSpellingSettingsService _spelling =
+      PegonSpellingSettingsService.instance;
+
+  Map<String, String> _userCorrections = const <String, String>{};
+
+  /// Pola kata yang dipakai [convertText] dan layar konverter.
+  static final RegExp wordPattern = RegExp(r"[A-Za-z'’‘`]+");
 
   /// Pemetaan konsonan dan digraf fonetis, diurutkan dari yang terpanjang
   /// agar `kh`, `sy`, `ng`, `ny` cocok sebelum `k`, `s`, `n`.
+  ///
+  /// `g`, `p`, dan `v` sengaja tidak ada di sini: ketiga huruf tersebut
+  /// memakai varian yang bisa dipilih pengguna (lihat [_consonant]).
   static const List<String> _digraphs = <String>[
     'kh', 'ch', 'sy', 'ng', 'ny', 'gh', 'th', 'dh',
   ];
 
   static const Map<String, String> _consonantMap = <String, String>{
     'b': 'ب',
-    'p': 'ڤ',
     't': 'ت',
     'j': 'ج',
     'd': 'د',
@@ -36,7 +48,6 @@ class PegonEngine {
     's': 'س',
     'z': 'ز',
     'f': 'ف',
-    'v': 'ڤ',
     'q': 'ق',
     'k': 'ك',
     'h': 'ه',
@@ -45,8 +56,9 @@ class PegonEngine {
     'n': 'ن',
     'w': 'و',
     'y': 'ي',
-    'g': 'ڬ',
     'c': 'چ',
+    // Fallback fonetis untuk hamzah. Kata Arab yang memakai 'ain (ع) harus
+    // masuk kamus pengecualian, mis. `jama'ah` -> جماعة.
     "'": 'ء',
   };
 
@@ -79,16 +91,34 @@ class PegonEngine {
 
   static const String _sukun = 'ْ';
 
+  /// Menyeragamkan apostrof tipografis yang sering muncul dari keyboard HP
+  /// atau hasil salin-teks menjadi apostrof ASCII `'`.
+  ///
+  /// Tanpa ini, `jama’ah` dipecah menjadi `jama` + `ah` oleh [convertText]
+  /// dan tidak pernah cocok dengan entri kamus `jama'ah`.
+  static String _normalizeApostrophes(String text) => text
+      .replaceAll('’', "'")
+      .replaceAll('‘', "'")
+      .replaceAll('`', "'");
+
   bool get isDictionaryLoaded => _database.isLoaded;
 
   int get dictionaryEntryCount => _database.entryCount;
 
-  /// Menyiapkan mesin dengan memuat kamus pengecualian dan pelafalan lokal.
+  /// Koreksi pengguna yang sedang dipakai (kata Latin → Pegon).
+  Map<String, String> get userCorrections =>
+      Map<String, String>.unmodifiable(_userCorrections);
+
+  /// Menyiapkan mesin dengan memuat kamus pengecualian, pelafalan lokal,
+  /// koreksi, dan pengaturan ejaan yang tersimpan di perangkat.
   Future<void> load() async {
     await Future.wait<void>(<Future<void>>[
       _database.load(),
       _schwaResolver.load(),
+      _corrections.load(),
+      _spelling.load(),
     ]);
+    _userCorrections = _corrections.entries;
   }
 
   /// Mengonversi seluruh kalimat [text] menjadi teks Pegon.
@@ -102,8 +132,6 @@ class PegonEngine {
     }
 
     final StringBuffer buffer = StringBuffer();
-    final RegExp wordPattern = RegExp("[A-Za-z']+");
-
     int lastEnd = 0;
     for (final RegExpMatch match in wordPattern.allMatches(text)) {
       buffer.write(text.substring(lastEnd, match.start));
@@ -116,12 +144,21 @@ class PegonEngine {
 
   /// Mengonversi satu kata menjadi [ConversionResult].
   ConversionResult convertWord(String word) {
-    final String cleaned = word.trim().toLowerCase();
+    final String cleaned = _normalizeApostrophes(word.trim().toLowerCase());
     if (cleaned.isEmpty) {
       return ConversionResult(input: word, output: word);
     }
 
-    // 1. Cek langsung di kamus (Arab baku & pengecualian kustom).
+    // 1. Koreksi pengguna paling utama, lalu kamus bawaan.
+    final String? corrected = _userCorrections[cleaned];
+    if (corrected != null) {
+      return ConversionResult(
+        input: word,
+        output: corrected,
+        source: ConversionSource.userCorrection,
+      );
+    }
+
     final String? direct = _database.lookup(cleaned);
     if (direct != null) {
       return ConversionResult(
@@ -148,6 +185,7 @@ class PegonEngine {
     final StemResult stem = _stemmer.stem(cleaned);
     if (stem.hasAffix) {
       final String? rootTranslation =
+          _userCorrections[stem.root] ??
           _database.lookup(stem.root) ??
           _database.lookup(_schwaResolver.mapTalingToI(stem.root));
       if (rootTranslation != null) {
@@ -165,6 +203,28 @@ class PegonEngine {
       output: phoneticConvert(cleaned),
       source: ConversionSource.phonetic,
     );
+  }
+
+  /// Menyimpan koreksi pengguna untuk satu kata Latin dan langsung
+  /// memakainya pada konversi berikutnya.
+  Future<void> addUserCorrection(String latin, String pegon) async {
+    final String key = _normalizeApostrophes(latin.trim().toLowerCase());
+    final String value = pegon.trim();
+    if (key.isEmpty || value.isEmpty) {
+      return;
+    }
+    await _corrections.save(key, value);
+    _userCorrections = Map<String, String>.from(_userCorrections)
+      ..[key] = value;
+  }
+
+  /// Menghapus koreksi pengguna untuk satu kata Latin.
+  Future<void> removeUserCorrection(String latin) async {
+    final String key = _normalizeApostrophes(latin.trim().toLowerCase());
+    await _corrections.remove(key);
+    final Map<String, String> next = Map<String, String>.from(_userCorrections);
+    next.remove(key);
+    _userCorrections = next;
   }
 
   /// Merekonstruksi kata berimbuhan: imbuhan diterjemahkan fonetis
@@ -192,10 +252,14 @@ class PegonEngine {
   /// - Vokal di awal kata ditulis dengan alif pembawa (ا، اي، او).
   /// - Vokal kembar dirapatkan menjadi satu huruf.
   ///
-  /// Contoh: `kepada` -> كڤادا، `ibu` -> ايبو، `bapak` -> باڤاك.
+  /// Contoh dengan pengaturan bawaan: `kepada` -> كڤادا، `ibu` -> ايبو،
+  /// `bapak` -> باڤاك. Huruf `g` dan `p`/`v` mengikuti varian ejaan yang
+  /// dipilih pengguna pada [PegonSpellingSettingsService].
   String phoneticConvert(String word) {
     final StringBuffer buffer = StringBuffer();
-    final String text = _schwaResolver.mapTalingToI(word.toLowerCase());
+    final String text = _schwaResolver.mapTalingToI(
+      _normalizeApostrophes(word.toLowerCase()),
+    );
     bool previousWasVowel = false;
     String? previousVowel;
 
@@ -235,7 +299,7 @@ class PegonEngine {
         continue;
       }
 
-      buffer.write(_consonantMap[ch] ?? '');
+      buffer.write(_consonant(ch));
       previousWasVowel = false;
       previousVowel = null;
       i++;
@@ -249,7 +313,7 @@ class PegonEngine {
   /// Contoh: `ber` -> بَرْ، `kan` -> كَنْ، `nya` -> ڽَ.
   String _affixConvert(String affix) {
     final StringBuffer buffer = StringBuffer();
-    final String text = affix.toLowerCase();
+    final String text = _normalizeApostrophes(affix.toLowerCase());
 
     for (int i = 0; i < text.length; i++) {
       final String ch = text[i];
@@ -274,7 +338,7 @@ class PegonEngine {
         continue;
       }
 
-      buffer.write(_consonantMap[ch] ?? '');
+      buffer.write(_consonant(ch));
     }
 
     // Sukun pada konsonan akhir imbuhan (mis. بَرْ).
@@ -284,6 +348,22 @@ class PegonEngine {
     }
 
     return buffer.toString();
+  }
+
+  /// Konsonan tunggal dengan varian ejaan yang dipilih pengguna.
+  ///
+  /// - `g` mengikuti [PegonSpellingSettingsService.gSpelling] (kaf).
+  /// - `p` dan `v` mengikuti [PegonSpellingSettingsService.pSpelling] (fa).
+  String _consonant(String ch) {
+    switch (ch) {
+      case 'g':
+        return _spelling.gSpelling.character;
+      case 'p':
+      case 'v':
+        return _spelling.pSpelling.character;
+      default:
+        return _consonantMap[ch] ?? '';
+    }
   }
 
   String _digraphValue(String digraph) {

@@ -12,7 +12,9 @@ import '../services/database_service.dart';
 import '../services/meaning_settings_service.dart';
 import '../services/meaning_share_service.dart';
 import '../services/pegon_engine.dart';
+import '../services/pegon_spelling_settings_service.dart';
 import '../services/speech_input_service.dart';
+import 'pegon_spelling_settings.dart';
 import 'pegon_toolbar.dart';
 
 Future<bool?> showWordMeaningEditor({
@@ -1057,6 +1059,15 @@ class _MeaningSettingsDialog extends StatelessWidget {
                       settings.setMeaningStyle(value);
                     }
                   },
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Ejaan konversi Latin → Pegon',
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+                const SizedBox(height: 8),
+                PegonSpellingSettingsControls(
+                  settings: PegonSpellingSettingsService.instance,
                 ),
                 const SizedBox(height: 8),
                 SwitchListTile(

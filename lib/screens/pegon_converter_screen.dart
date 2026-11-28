@@ -8,7 +8,9 @@ import 'package:speech_to_text/speech_to_text.dart';
 
 import '../models/conversion_result.dart';
 import '../services/pegon_engine.dart';
+import '../services/pegon_spelling_settings_service.dart';
 import '../services/speech_input_service.dart';
+import '../widgets/pegon_spelling_settings.dart';
 
 /// Halaman konverter teks Bahasa Indonesia ke aksara Pegon.
 ///
@@ -25,6 +27,8 @@ class _PegonConverterScreenState extends State<PegonConverterScreen> {
   final TextEditingController _inputController = TextEditingController();
   final PegonEngine _engine = PegonEngine.instance;
   final SpeechInputService _speech = SpeechInputService.instance;
+  final PegonSpellingSettingsService _spelling =
+      PegonSpellingSettingsService.instance;
 
   bool _isEngineReady = false;
   bool _isListening = false;
@@ -33,11 +37,30 @@ class _PegonConverterScreenState extends State<PegonConverterScreen> {
   String _voiceInputBase = '';
   String _output = '';
 
+  static const String _correctionInputKey = 'pegon-correction-input';
+  static const String _correctionSaveKey = 'pegon-correction-save';
+
   @override
   void initState() {
     super.initState();
     _inputController.addListener(_convert);
+    _spelling.addListener(_handleSpellingChanged);
     unawaited(_loadEngine());
+  }
+
+  /// Ejaan yang dipilih pengguna langsung dipakai mesin konversi, jadi
+  /// tampilan perlu disegarkan saat pengaturan berubah.
+  void _handleSpellingChanged() {
+    if (mounted) {
+      _convert();
+    }
+  }
+
+  Future<void> _showSpellingSettings() async {
+    await showPegonSpellingSettingsDialog(context: context);
+    if (mounted) {
+      _convert();
+    }
   }
 
   Future<void> _loadEngine() async {
@@ -64,6 +87,7 @@ class _PegonConverterScreenState extends State<PegonConverterScreen> {
       unawaited(_cancelSpeech());
     }
     _inputController.removeListener(_convert);
+    _spelling.removeListener(_handleSpellingChanged);
     _inputController.dispose();
     super.dispose();
   }
@@ -244,7 +268,9 @@ class _PegonConverterScreenState extends State<PegonConverterScreen> {
     }
   }
 
-  void _showVoiceMessage(String message) {
+  void _showVoiceMessage(String message) => _showMessage(message);
+
+  void _showMessage(String message) {
     if (!mounted) {
       return;
     }
@@ -252,30 +278,77 @@ class _PegonConverterScreenState extends State<PegonConverterScreen> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
+  /// Menampilkan dialog koreksi untuk satu kata hasil konversi.
+  Future<void> _showCorrectionDialog(String word) async {
+    final ConversionResult result = _engine.convertWord(word);
+    final _CorrectionResult? action = await showDialog<_CorrectionResult>(
+      context: context,
+      builder: (BuildContext context) =>
+          _CorrectionDialog(word: word, result: result),
+    );
+
+    if (action == null) {
+      return;
+    }
+    try {
+      if (action.kind == _CorrectionKind.remove) {
+        await _engine.removeUserCorrection(word);
+        _showMessage('Koreksi dihapus.');
+      } else {
+        await _engine.addUserCorrection(word, action.value);
+        _showMessage('Koreksi tersimpan untuk "$word".');
+      }
+    } catch (error) {
+      _showMessage('Gagal menyimpan koreksi: $error');
+      return;
+    }
+    if (mounted) {
+      _convert();
+    }
+  }
+
+  Future<void> _deleteCorrection(String word) async {
+    try {
+      await _engine.removeUserCorrection(word);
+      _showMessage('Koreksi dihapus.');
+      _convert();
+    } catch (error) {
+      _showMessage('Gagal menghapus koreksi: $error');
+    }
+  }
+
   List<Widget> _buildWordBreakdown() {
-    final RegExp wordPattern = RegExp("[A-Za-z']+");
     final List<Widget> chips = <Widget>[];
 
-    for (final RegExpMatch match in wordPattern.allMatches(
+    for (final RegExpMatch match in PegonEngine.wordPattern.allMatches(
       _inputController.text,
     )) {
-      final ConversionResult result = _engine.convertWord(match.group(0)!);
+      final String word = match.group(0)!;
+      final ConversionResult result = _engine.convertWord(word);
       chips.add(
-        InputChip(
-          label: Text(
-            '${result.input} → ${result.output}',
-            textDirection: TextDirection.rtl,
-          ),
-          onPressed: () {
-            Clipboard.setData(ClipboardData(text: result.output));
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  '${result.output} (${result.source.label}) tersalin',
-                ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            InputChip(
+              label: Text(
+                '${result.input} → ${result.output}',
+                textDirection: TextDirection.rtl,
               ),
-            );
-          },
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: result.output));
+                _showMessage(
+                  '${result.output} (${result.source.label}) tersalin',
+                );
+              },
+            ),
+            IconButton(
+              key: ValueKey<String>('pegon-fix-$word'),
+              tooltip: 'Perbaiki konversi',
+              icon: const Icon(Icons.edit_outlined, size: 18),
+              visualDensity: VisualDensity.compact,
+              onPressed: () => _showCorrectionDialog(word),
+            ),
+          ],
         ),
       );
     }
@@ -288,7 +361,17 @@ class _PegonConverterScreenState extends State<PegonConverterScreen> {
     final ColorScheme colors = theme.colorScheme;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Pegon')),
+      appBar: AppBar(
+        title: const Text('Pegon'),
+        actions: <Widget>[
+          IconButton(
+            key: const ValueKey<String>('pegon-spelling-settings'),
+            tooltip: 'Pengaturan ejaan Pegon',
+            icon: const Icon(Icons.tune),
+            onPressed: _showSpellingSettings,
+          ),
+        ],
+      ),
       body: !_isEngineReady
           ? const Center(
               child: Column(
@@ -327,7 +410,8 @@ class _PegonConverterScreenState extends State<PegonConverterScreen> {
                                 ),
                                 const Spacer(),
                                 Text(
-                                  'Kamus: ${_engine.dictionaryEntryCount} kata',
+                                  'Kamus: ${_engine.dictionaryEntryCount} · '
+                                  'Koreksi: ${_engine.userCorrections.length}',
                                   style: theme.textTheme.labelSmall?.copyWith(
                                     color: colors.onSurfaceVariant,
                                   ),
@@ -339,7 +423,8 @@ class _PegonConverterScreenState extends State<PegonConverterScreen> {
                               'Tulis teks Bahasa Indonesia, hasil konversi '
                               'Pegon muncul langsung di bawah dan bisa '
                               'disalin ke kolom makna atau catatan pada '
-                              'mode terjemah.',
+                              'mode terjemah. Varian ejaan (kaf/fa) bisa '
+                              'diubah lewat ikon pengaturan di kanan atas.',
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: colors.onSurfaceVariant,
                               ),
@@ -350,6 +435,7 @@ class _PegonConverterScreenState extends State<PegonConverterScreen> {
                     ),
                     const SizedBox(height: 16),
                     TextField(
+                      key: const ValueKey<String>('pegon-input'),
                       controller: _inputController,
                       readOnly:
                           _isListening ||
@@ -442,10 +528,46 @@ class _PegonConverterScreenState extends State<PegonConverterScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Ketuk chip untuk menyalin satu kata. '
-                        'Sumber: Kamus = ejaan Arab baku, '
-                        'Kamus + imbuhan = kata dasar Arab + afiks fonetis, '
-                        'Fonetis = transliterasi huruf demi huruf.',
+                        'Ketuk chip untuk menyalin satu kata, atau ikon '
+                        'pensil untuk memperbaiki konversinya. Sumber: '
+                        'Kamus = ejaan Arab baku, Kamus + imbuhan = kata '
+                        'dasar Arab + afiks fonetis, Fonetis = transliterasi '
+                        'huruf demi huruf, Koreksi Anda = ejaan yang Anda '
+                        'simpan di perangkat.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                    if (_engine.userCorrections.isNotEmpty) ...<Widget>[
+                      const SizedBox(height: 16),
+                      Text(
+                        'Koreksi Anda (${_engine.userCorrections.length})',
+                        style: theme.textTheme.labelLarge,
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: <Widget>[
+                          for (final MapEntry<String, String> entry
+                              in _engine.userCorrections.entries)
+                            InputChip(
+                              key: ValueKey<String>(
+                                'pegon-saved-${entry.key}',
+                              ),
+                              label: Text(
+                                '${entry.key} → ${entry.value}',
+                                textDirection: TextDirection.rtl,
+                              ),
+                              deleteIcon: const Icon(Icons.close, size: 18),
+                              onDeleted: () => _deleteCorrection(entry.key),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Ketuk × untuk menghapus koreksi.',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: colors.onSurfaceVariant,
                         ),
@@ -457,4 +579,114 @@ class _PegonConverterScreenState extends State<PegonConverterScreen> {
             ),
     );
   }
+}
+
+/// Dialog yang mengelola controller-nya sendiri sehingga controller tidak
+/// dibuang sebelum animasi tutup dialog selesai.
+class _CorrectionDialog extends StatefulWidget {
+  const _CorrectionDialog({required this.word, required this.result});
+
+  final String word;
+  final ConversionResult result;
+
+  @override
+  State<_CorrectionDialog> createState() => _CorrectionDialogState();
+}
+
+class _CorrectionDialogState extends State<_CorrectionDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.result.output);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final bool hasCorrection =
+        widget.result.source == ConversionSource.userCorrection;
+
+    return AlertDialog(
+      title: const Text('Perbaiki konversi'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            '${widget.word} → ${widget.result.output} '
+            '(${widget.result.source.label})',
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            key: const ValueKey<String>(_PegonConverterScreenState._correctionInputKey),
+            controller: _controller,
+            autofocus: true,
+            textDirection: TextDirection.rtl,
+            textAlign: TextAlign.right,
+            decoration: const InputDecoration(
+              labelText: 'Ejaan Pegon yang benar',
+              border: OutlineInputBorder(),
+            ),
+            onSubmitted: (String value) => Navigator.pop(
+              context,
+              _CorrectionResult.save(value.trim()),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Koreksi disimpan di perangkat ini dan dipakai setiap kata '
+            'ini muncul. Kamus bawaan tidak diubah.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+      actions: <Widget>[
+        if (hasCorrection)
+          TextButton(
+            onPressed: () => Navigator.pop(
+              context,
+              const _CorrectionResult.remove(),
+            ),
+            child: const Text('Hapus koreksi'),
+          ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Batal'),
+        ),
+        FilledButton(
+          key: const ValueKey<String>(_PegonConverterScreenState._correctionSaveKey),
+          onPressed: () {
+            final String value = _controller.text.trim();
+            if (value.isEmpty) {
+              return;
+            }
+            Navigator.pop(context, _CorrectionResult.save(value));
+          },
+          child: const Text('Simpan'),
+        ),
+      ],
+    );
+  }
+}
+
+enum _CorrectionKind { save, remove }
+
+/// Hasil dialog koreksi: ejaan baru atau permintaan hapus koreksi.
+class _CorrectionResult {
+  const _CorrectionResult.save(this.value) : kind = _CorrectionKind.save;
+
+  const _CorrectionResult.remove() : value = '', kind = _CorrectionKind.remove;
+
+  final _CorrectionKind kind;
+  final String value;
 }

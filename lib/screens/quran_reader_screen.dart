@@ -11,9 +11,11 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../providers/quran_provider.dart';
 import '../models/quran_page_info.dart';
+import '../services/ayah_text_formatter.dart';
 import '../services/bookmark_service.dart';
 import '../services/daily_log_service.dart';
 import '../services/meaning_settings_service.dart';
+import '../services/mushaf_line_order.dart';
 import '../services/offline_data_service.dart';
 import '../widgets/meaning_dialogs.dart';
 import '../widgets/translation_surah_view.dart';
@@ -104,6 +106,7 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
         QcfFontLoader.ensureFontLoaded(1),
         QuranRepository.instance.ensureLoaded(QcfFontLoader.totalPages),
       ]);
+      applyMushafAyahOrderFix();
     } catch (error, stackTrace) {
       debugPrint('Gagal menyiapkan data Mushaf lokal: $error\n$stackTrace');
       if (!mounted) {
@@ -1181,11 +1184,6 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
     return null;
   }
 
-  String _formatAyah(Ayah ayah) {
-    return '${ayah.othmanicAyah.trim()}\n\n'
-        '${ayah.surahNameEn} (${ayah.surahNumber}:${ayah.ayahNumber})';
-  }
-
   Future<void> _copyAyah(int surah, int ayahNumber) async {
     final Ayah? ayah = _findAyah(surah, ayahNumber);
     if (ayah == null) {
@@ -1194,7 +1192,9 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
     }
 
     try {
-      await Clipboard.setData(ClipboardData(text: _formatAyah(ayah)));
+      await Clipboard.setData(
+        ClipboardData(text: formatAyahForClipboard(ayah)),
+      );
     } on Exception catch (error, stackTrace) {
       _showAyahActionError('menyalin', error, stackTrace);
       return;
@@ -1217,7 +1217,7 @@ class _QuranReaderScreenState extends State<QuranReaderScreen> {
     try {
       await SharePlus.instance.share(
         ShareParams(
-          text: _formatAyah(ayah),
+          text: formatAyahForClipboard(ayah),
           subject: '${ayah.surahNameEn} ${ayah.surahNumber}:${ayah.ayahNumber}',
         ),
       );

@@ -4,6 +4,7 @@ import 'package:qcf_quran_plus/qcf_quran_plus.dart';
 import 'package:qcf_quran_plus/src/widgets/quran_page/quran_repository.dart';
 
 import 'package:quran2/screens/quran_reader_screen.dart';
+import 'package:quran2/services/mushaf_line_order.dart';
 
 /// Splash screen: cek ketersediaan font lokal, unduh jika diperlukan,
 /// lalu masuk ke layar pembaca Mushaf.
@@ -42,6 +43,7 @@ class _SplashScreenState extends State<SplashScreen> {
         QcfFontLoader.ensureFontLoaded(1),
         QuranRepository.instance.ensureLoaded(604),
       ]);
+      applyMushafAyahOrderFix();
     } catch (error) {
       debugPrint('Gagal menyiapkan Mushaf: $error');
       if (!mounted) {

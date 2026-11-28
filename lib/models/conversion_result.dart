@@ -27,7 +27,10 @@ enum ConversionSource {
   dictionaryWithAffix,
 
   /// Kata dikonversi fonetis karakter demi karakter.
-  phonetic;
+  phonetic,
+
+  /// Kata memakai ejaan koreksi yang disimpan pengguna di perangkat.
+  userCorrection;
 
   String get label {
     switch (this) {
@@ -37,6 +40,8 @@ enum ConversionSource {
         return 'Kamus + imbuhan';
       case ConversionSource.phonetic:
         return 'Fonetis';
+      case ConversionSource.userCorrection:
+        return 'Koreksi Anda';
     }
   }
 }

@@ -112,7 +112,11 @@ Untuk kata-kata biasa (non-Arab), gunakan pemetaan karakter fonetis standar Nusa
 
 * `y` $\rightarrow$ ي
 
+* `g` $\rightarrow$ ڬ (kaf titik 1 atas; pengaturan pengguna bisa menggantinya dengan ڮ kaf titik 3 bawah, ࢴ kaf titik 1 bawah, atau ݢ keheh titik 1 atas)
+
 * `a, i, u, e, o` $\rightarrow$ Diatur berdasarkan posisi (awal, tengah, akhir) atau disesuaikan dengan kaidah Pegon gundul standar. `e` pepet mengikuti kaidah lama; `e` taling diperlakukan seperti `i` menggunakan data pelafalan offline dan aturan imbuhan.
+
+> **Varian ejaan (`p`/`v`):** pemetaan bawaan `p`, `v` $\rightarrow$ ڤ (fa titik 3 atas). Pengguna dapat memilih ڣ (fa titik 1 bawah), ڢ (fa titik 1 dipindah ke bawah), atau ف (fa biasa/titik 1 atas) melalui menu **Pengaturan Ejaan Pegon** (ikon *tune* pada layar konverter, juga tersedia di **Pengaturan Makna**). Pilihan disimpan di perangkat dan memengaruhi konversi fonetis; ejaan dari kamus dan koreksi pengguna tidak diubah.
 
 ## 4. Panduan Implementasi Antarmuka (UI) untuk AI
 

@@ -1,10 +1,16 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quran2/models/conversion_result.dart';
+import 'package:quran2/services/pegon_correction_service.dart';
 import 'package:quran2/services/pegon_engine.dart';
+import 'package:quran2/services/pegon_spelling_settings_service.dart';
 import 'package:quran2/services/pegon_stemmer.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  SharedPreferences.setMockInitialValues(<String, Object>{});
 
   late PegonEngine engine;
 
@@ -19,6 +25,21 @@ void main() {
 
       expect(result.output, 'مُشَاوَرَة');
       expect(result.source, ConversionSource.dictionary);
+    });
+
+    test("jamaah memakai 'ain (ع) dan ta marbutah (ة) dari kamus", () {
+      for (final String word in <String>[
+        "jama'ah",
+        "jamaa'ah",
+        'jamaah',
+        'jama’ah',
+        'jamaa’ah',
+      ]) {
+        final ConversionResult result = engine.convertWord(word);
+        expect(result.output, 'جماعة', reason: word);
+        expect(result.source, ConversionSource.dictionary, reason: word);
+      }
+      expect(engine.convertText('berjamaah di masjid'), 'بَرْجماعة دي مَسْجِد');
     });
 
     test('kata berimbuhan: awalan fonetis + kata dasar kamus', () {
@@ -102,6 +123,113 @@ void main() {
 
     test('teks kosong menghasilkan kosong', () {
       expect(engine.convertText('   '), '');
+    });
+  });
+
+  group('Koreksi pengguna', () {
+    test('koreksi mengalahkan kamus dan fonetis', () async {
+      await engine.addUserCorrection('sejarah', 'سِيَرَة');
+
+      final ConversionResult result = engine.convertWord('sejarah');
+      expect(result.output, 'سِيَرَة');
+      expect(result.source, ConversionSource.userCorrection);
+      expect(engine.convertText('sejarah'), 'سِيَرَة');
+
+      await engine.removeUserCorrection('sejarah');
+      expect(engine.convertWord('sejarah').source, ConversionSource.phonetic);
+    });
+
+    test('varian apostrof koreksi sama dan tersimpan lokal', () async {
+      await engine.addUserCorrection('ka’bah', 'كَعْبَة');
+
+      expect(engine.convertWord("ka'bah").output, 'كَعْبَة');
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      expect(
+        jsonDecode(prefs.getString(PegonCorrectionService.storageKey)!),
+        containsPair("ka'bah", 'كَعْبَة'),
+      );
+
+      await engine.removeUserCorrection("ka'bah");
+    });
+
+    test('koreksi akar kata ikut dipakai saat rekonstruksi imbuhan', () async {
+      await engine.addUserCorrection('jamaah', 'جَمَاعَة');
+
+      expect(engine.convertWord('berjamaah').output, 'بَرْجَمَاعَة');
+
+      await engine.removeUserCorrection('jamaah');
+      expect(engine.convertWord('berjamaah').output, 'بَرْجماعة');
+    });
+  });
+
+  group('Varian ejaan Pegon pilihan pengguna', () {
+    final PegonSpellingSettingsService settings =
+        PegonSpellingSettingsService.instance;
+
+    setUp(() async {
+      await settings.setGSpelling(PegonGSpelling.kafDotAbove);
+      await settings.setPSpelling(PegonPSpelling.veh);
+    });
+
+    tearDown(() async {
+      await settings.setGSpelling(PegonGSpelling.kafDotAbove);
+      await settings.setPSpelling(PegonPSpelling.veh);
+    });
+
+    test('ejaan bawaan tidak berubah', () {
+      expect(engine.phoneticConvert('pegawai'), 'ڤڬاواي');
+      expect(engine.convertText('kepada bapak ibu'), 'كڤادا باڤاك ايبو');
+    });
+
+    test('g bisa memakai kaf titik 3 bawah atau kaf titik 1 bawah', () async {
+      await settings.setGSpelling(PegonGSpelling.kafThreeDotsBelow);
+      expect(engine.phoneticConvert('pegawai'), 'ڤڮاواي');
+
+      await settings.setGSpelling(PegonGSpelling.kafDotBelow);
+      expect(engine.phoneticConvert('pegawai'), 'ڤࢴاواي');
+
+      await settings.setGSpelling(PegonGSpelling.kehehDotAbove);
+      expect(engine.phoneticConvert('pegawai'), 'ڤݢاواي');
+    });
+
+    test('p dan v mengikuti varian fa yang dipilih', () async {
+      await settings.setPSpelling(PegonPSpelling.feh);
+      expect(engine.phoneticConvert('pegawai'), 'فڬاواي');
+      expect(engine.phoneticConvert('v'), 'ف');
+
+      await settings.setPSpelling(PegonPSpelling.fehDotBelow);
+      expect(engine.phoneticConvert('pegawai'), 'ڣڬاواي');
+      expect(engine.phoneticConvert('v'), 'ڣ');
+
+      await settings.setPSpelling(PegonPSpelling.fehDotMovedBelow);
+      expect(engine.phoneticConvert('bapak'), 'باڢاك');
+    });
+
+    test('kamus dan koreksi pengguna tidak terpengaruh varian', () async {
+      await settings.setGSpelling(PegonGSpelling.kafDotBelow);
+      await settings.setPSpelling(PegonPSpelling.feh);
+
+      expect(engine.convertWord('musyawarah').output, 'مُشَاوَرَة');
+      expect(engine.convertWord('fakir').output, 'فَقِير');
+
+      await engine.addUserCorrection('pegawai', 'ڤڬاواي');
+      expect(engine.convertWord('pegawai').output, 'ڤڬاواي');
+      await engine.removeUserCorrection('pegawai');
+    });
+
+    test('pilihan ejaan tersimpan di penyimpanan lokal', () async {
+      await settings.setGSpelling(PegonGSpelling.kafThreeDotsBelow);
+      await settings.setPSpelling(PegonPSpelling.fehDotBelow);
+
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getString(PegonSpellingSettingsService.gSpellingKey),
+        'kaf_three_dots_below',
+      );
+      expect(
+        prefs.getString(PegonSpellingSettingsService.pSpellingKey),
+        'feh_dot_below',
+      );
     });
   });
 }
